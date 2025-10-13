@@ -1,0 +1,82 @@
+[
+  {
+    "name": "security_iframe_cookie_detect",
+    "value": "1",
+    "domain": "lf3-static.bytednsdoc.com",
+    "path": "/obj/eden-cn/fapybjlz_lm_zlp/ljhwZthlaukjlkulzlp/security",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "gd_random",
+    "value": "eyJtYXRjaCI6dHJ1ZSwicGVyY2VudCI6MC41ODA5MDcwNDQ4OTUyNTgxfQ==.sHfAJ/kWZsR4rp1+mmpvXKh2vBQzF4kg2pJUs9O8c4Y=",
+    "domain": "www.xingtu.cn",
+    "path": "/ad",
+    "expires": 1754989233.550761,
+    "httpOnly": true,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "csrf_session_id",
+    "value": "60445fe1df37881cd817dccaee305de1",
+    "domain": "www.xingtu.cn",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "tt_webid",
+    "value": "7535023712350111283",
+    "domain": ".xingtu.cn",
+    "path": "/",
+    "expires": 1785920434.460103,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "HMACCOUNT_BFESS",
+    "value": "920281763F0F4C4E",
+    "domain": ".hm.baidu.com",
+    "path": "/",
+    "expires": 1788944434.953335,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "Hm_lvt_5d77c979053345c4bd8db63329f818ec",
+    "value": "1754384435",
+    "domain": ".xingtu.cn",
+    "path": "/",
+    "expires": 1785920434,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "Hm_lpvt_5d77c979053345c4bd8db63329f818ec",
+    "value": "1754384435",
+    "domain": ".xingtu.cn",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "HMACCOUNT",
+    "value": "920281763F0F4C4E",
+    "domain": ".xingtu.cn",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  }
+]

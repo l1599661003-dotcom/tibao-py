@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "工作清单管理",
+  "version": "2.0.0",
+  "description": "专业的工作清单管理插件，支持日、周、月视图任务管理和勾选完成功能",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "工作清单"
+  },
+  "content_scripts": [],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

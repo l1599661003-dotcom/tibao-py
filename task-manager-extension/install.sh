@@ -1,0 +1,47 @@
+#!/bin/bash
+
+echo "================================================"
+echo "           任务管理插件安装助手"
+echo "================================================"
+echo ""
+echo "请按照以下步骤安装插件："
+echo ""
+echo "Chrome/Chromium 安装方法："
+echo "1. 打开Chrome浏览器"
+echo "2. 在地址栏输入: chrome://extensions/"
+echo "3. 开启右上角的'开发者模式'"
+echo "4. 点击'加载已解压的扩展程序'"
+echo "5. 选择当前文件夹: $(pwd)"
+echo "6. 点击'选择文件夹'完成安装"
+echo ""
+echo "================================================"
+echo ""
+echo "Firefox 安装方法："
+echo "1. 打开Firefox浏览器"
+echo "2. 在地址栏输入: about:debugging#/runtime/this-firefox"
+echo "3. 点击'临时载入附加组件'"
+echo "4. 选择本文件夹中的manifest.json文件"
+echo "5. 点击'打开'完成安装"
+echo ""
+echo "注意：Firefox中的临时载入在浏览器关闭后会失效"
+echo ""
+echo "================================================"
+echo ""
+echo "安装完成后，您可以："
+echo "- 点击浏览器工具栏中的插件图标使用"
+echo "- 右键点击插件图标选择'固定'以便快速访问"
+echo ""
+echo "================================================"
+echo ""
+
+# 检查是否有图标文件
+if [ ! -f "icons/icon16.png" ] || [ ! -f "icons/icon48.png" ] || [ ! -f "icons/icon128.png" ]; then
+    echo "⚠️  注意：未找到图标文件，请在 icons/ 目录下添加："
+    echo "   - icon16.png (16x16像素)"
+    echo "   - icon48.png (48x48像素)"
+    echo "   - icon128.png (128x128像素)"
+    echo ""
+fi
+
+echo "按回车键退出..."
+read

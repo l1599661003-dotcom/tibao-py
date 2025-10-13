@@ -1,0 +1,229 @@
+2025-10-11 13:51:39 | INFO     | __main__:setup_logger:96 - 日志文件保存路径: D:\myHome\project\ti-bao-py\command\pgy_playwright\logs
+2025-10-11 13:51:39 | INFO     | __main__:run_spider_task:653 - 爬虫实例初始化成功
+2025-10-11 13:51:39 | INFO     | __main__:run_spider_task:656 - 开始初始化浏览器...
+2025-10-11 13:51:40 | INFO     | __main__:setup_browser:134 - 使用系统安装的Playwright
+2025-10-11 13:51:41 | INFO     | __main__:setup_browser:139 - 系统Playwright已安装Chromium浏览器
+2025-10-11 13:51:41 | INFO     | __main__:setup_browser:232 - 尝试使用系统默认路径启动浏览器...
+2025-10-11 13:51:42 | INFO     | __main__:setup_browser:245 - 成功启动Chromium浏览器（系统默认）
+2025-10-11 13:51:42 | INFO     | __main__:_load_cookies:618 - 找到Cookie文件: D:\myHome\project\ti-bao-py\command\pgy_playwright\cookies.json
+2025-10-11 13:51:42 | INFO     | __main__:_load_cookies:624 - 已成功加载 12 个Cookie
+2025-10-11 13:51:47 | INFO     | __main__:setup_browser:296 - 找到用户头像元素数量: 1
+2025-10-11 13:51:47 | INFO     | __main__:setup_browser:300 - Cookie有效，已自动登录
+2025-10-11 13:51:47 | INFO     | __main__:run_spider_task:658 - 浏览器初始化成功
+2025-10-11 13:51:47 | INFO     | __main__:run_spider_task:661 - 开始登录流程...
+2025-10-11 13:51:47 | INFO     | __main__:login:322 - 已处于登录状态
+2025-10-11 13:51:47 | INFO     | __main__:run_spider_task:667 - 登录成功，开始抓取数据...
+2025-10-11 13:51:47 | INFO     | __main__:scrape_user_notes:379 - 开始发送邀约表单
+2025-10-11 13:51:47 | INFO     | __main__:scrape_user_notes:388 - 开始访问邀约表单页面: https://pgy.xiaohongshu.com/solar/pre-trade/invite-form?id=5fd33a7b000000000101e234&trackId=
+2025-10-11 13:51:47 | INFO     | __main__:scrape_user_notes:406 - 等待页面加载完成...
+2025-10-11 13:52:02 | ERROR    | __main__:scrape_user_notes:410 - 等待页面加载完成时出错: Timeout 15000ms exceeded.
+2025-10-11 13:52:02 | INFO     | __main__:_check_page_loaded:452 - 页面标题: 发起邀约 - 小红书蒲公英
+2025-10-11 13:52:02 | INFO     | __main__:_check_page_loaded:460 - 找到 22 个表单元素
+2025-10-11 13:52:02 | INFO     | __main__:_try_reuse_previous_content:476 - 找到复用按钮，点击复用上回内容
+2025-10-11 13:52:05 | INFO     | __main__:_try_reuse_previous_content:484 - 成功复用上回内容，发现 2 个已填充字段
+2025-10-11 13:52:05 | INFO     | __main__:_fill_invite_form:497 - 开始填写邀约表单...
+2025-10-11 13:52:09 | INFO     | __main__:_fill_invite_form:517 - 邀约表单填写完成
+2025-10-11 13:52:22 | INFO     | __main__:_save_cookies:607 - Cookie已保存到: D:\myHome\project\ti-bao-py\command\pgy_playwright\cookies.json
+2025-10-11 13:52:22 | WARNING  | __main__:run_spider_task:676 - 用户手动中断程序
+2025-10-11 13:52:22 | ERROR    | __main__:_save_cookies:609 - 保存Cookie时出错: BrowserContext.cookies: Target page, context or browser has been closed
+2025-10-11 14:31:58 | INFO     | __main__:setup_logger:89 - 日志文件保存路径: D:\myHome\project\ti-bao-py\command\pgy_playwright\logs
+2025-10-11 14:31:58 | ERROR    | __main__:load_config:98 - 加载配置文件失败: 'PGYSpider' object has no attribute 'config_file'
+2025-10-11 14:31:58 | ERROR    | __main__:run_spider_task:685 - 程序运行出错: 'PGYSpider' object has no attribute 'config_file'
+2025-10-11 14:31:58 | ERROR    | __main__:run_spider_task:686 - 错误详情: Traceback (most recent call last):
+  File "D:\myHome\project\ti-bao-py\command\pgy_playwright\send_pgy_yaoyue.py", line 648, in run_spider_task
+    spider = PGYSpider()
+  File "D:\myHome\project\ti-bao-py\command\pgy_playwright\send_pgy_yaoyue.py", line 27, in __init__
+    self.load_config()
+    ~~~~~~~~~~~~~~~~^^
+  File "D:\myHome\project\ti-bao-py\command\pgy_playwright\send_pgy_yaoyue.py", line 95, in load_config
+    self.config.read(self.config_file, encoding='utf-8')
+                     ^^^^^^^^^^^^^^^^
+AttributeError: 'PGYSpider' object has no attribute 'config_file'
+
+2025-10-11 14:33:31 | INFO     | __main__:setup_logger:89 - 日志文件保存路径: D:\myHome\project\ti-bao-py\command\pgy_playwright\logs
+2025-10-11 14:33:31 | INFO     | __main__:load_config:96 - 成功加载配置文件: D:\myHome\project\ti-bao-py\command\pgy_playwright\config.ini
+2025-10-11 14:33:31 | INFO     | __main__:run_spider_task:649 - 爬虫实例初始化成功
+2025-10-11 14:33:36 | INFO     | __main__:select_excel_file:128 - 已选择Excel文件: C:/Users/asus/Desktop/1111.xlsx
+2025-10-11 14:33:37 | INFO     | __main__:load_excel_data:147 - 成功加载Excel数据，共 1 行
+2025-10-11 14:33:37 | INFO     | __main__:load_excel_data:158 - 前3行数据预览:
+2025-10-11 14:33:37 | INFO     | __main__:load_excel_data:161 - 第1行 蒲公英链接: https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/610b6bb5000000000100a157
+2025-10-11 14:33:37 | INFO     | __main__:run_spider_task:662 - 开始初始化浏览器...
+2025-10-11 14:33:42 | INFO     | __main__:setup_browser:202 - 成功启动Chromium浏览器
+2025-10-11 14:33:42 | INFO     | __main__:_load_cookies:616 - 找到Cookie文件: D:\myHome\project\ti-bao-py\command\pgy_playwright\cookies.json
+2025-10-11 14:33:42 | INFO     | __main__:_load_cookies:622 - 已成功加载 14 个Cookie
+2025-10-11 14:33:46 | INFO     | __main__:setup_browser:226 - Cookie有效，已自动登录
+2025-10-11 14:33:46 | INFO     | __main__:run_spider_task:664 - 浏览器初始化成功
+2025-10-11 14:33:46 | INFO     | __main__:run_spider_task:667 - 开始登录流程...
+2025-10-11 14:33:46 | INFO     | __main__:login:248 - 已处于登录状态
+2025-10-11 14:33:46 | INFO     | __main__:run_spider_task:673 - 登录成功，开始处理Excel数据...
+2025-10-11 14:33:46 | INFO     | __main__:process_excel_invites:366 - 开始处理Excel数据，共 1 行
+2025-10-11 14:33:46 | INFO     | __main__:process_excel_invites:382 - 处理第 1 行，提取的ID: 610b6bb5000000000100a157
+2025-10-11 14:33:46 | INFO     | __main__:_send_invite_form:407 - 开始发送第 1 行的邀约表单，ID: 610b6bb5000000000100a157
+2025-10-11 14:33:46 | INFO     | __main__:_send_invite_form:411 - 访问邀约表单页面: https://pgy.xiaohongshu.com/solar/pre-trade/invite-form?id=610b6bb5000000000100a157&trackId=
+2025-10-11 14:33:47 | INFO     | __main__:_send_invite_form:415 - 等待页面加载完成...
+2025-10-11 14:34:02 | ERROR    | __main__:_send_invite_form:419 - 等待页面加载完成时出错: Timeout 15000ms exceeded.
+2025-10-11 14:34:02 | INFO     | __main__:_check_page_loaded:449 - 页面标题: 发起邀约 - 小红书蒲公英
+2025-10-11 14:34:02 | INFO     | __main__:_check_page_loaded:457 - 找到 22 个表单元素
+2025-10-11 14:34:02 | INFO     | __main__:_try_reuse_previous_content:473 - 找到复用按钮，点击复用上回内容
+2025-10-11 14:34:04 | INFO     | __main__:_try_reuse_previous_content:479 - 复用成功，发现 2 个已填充字段
+2025-10-11 14:34:04 | INFO     | __main__:_fill_invite_form:489 - 开始填写邀约表单...
+2025-10-11 14:34:04 | INFO     | __main__:_fill_invite_form:499 - 填写产品名称: 测试产品
+2025-10-11 14:34:05 | INFO     | __main__:_fill_invite_form:509 - 填写产品类型描述: 测试产品类型描述
+2025-10-11 14:34:07 | INFO     | __main__:_fill_invite_form:515 - 邀约表单填写完成
+2025-10-11 14:34:27 | INFO     | __main__:_send_invite_form:436 - 第 1 行邀约表单发送成功
+2025-10-11 14:34:27 | INFO     | __main__:process_excel_invites:386 - 第 1 行邀约表单发送成功
+2025-10-11 14:34:36 | INFO     | __main__:process_excel_invites:397 - 所有邀约表单处理完成
+2025-10-11 14:34:36 | INFO     | __main__:run_spider_task:678 - 所有邀约表单处理完成
+2025-10-11 14:34:36 | INFO     | __main__:_save_cookies:605 - Cookie已保存到: D:\myHome\project\ti-bao-py\command\pgy_playwright\cookies.json
+2025-10-11 14:34:36 | INFO     | __main__:close:588 - 浏览器和playwright已关闭
+2025-10-11 14:34:36 | INFO     | __main__:run_spider_task:693 - 资源清理完成
+2025-10-11 14:35:46 | INFO     | __main__:setup_logger:89 - 日志文件保存路径: D:\myHome\project\ti-bao-py\command\pgy_playwright\logs
+2025-10-11 14:35:46 | INFO     | __main__:load_config:96 - 成功加载配置文件: D:\myHome\project\ti-bao-py\command\pgy_playwright\config.ini
+2025-10-11 14:35:46 | INFO     | __main__:run_spider_task:649 - 爬虫实例初始化成功
+2025-10-11 14:35:52 | INFO     | __main__:select_excel_file:128 - 已选择Excel文件: C:/Users/asus/Desktop/1111.xlsx
+2025-10-11 14:35:52 | INFO     | __main__:load_excel_data:147 - 成功加载Excel数据，共 1 行
+2025-10-11 14:35:52 | INFO     | __main__:load_excel_data:158 - 前3行数据预览:
+2025-10-11 14:35:52 | INFO     | __main__:load_excel_data:161 - 第1行 蒲公英链接: https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/610b6bb5000000000100a157
+2025-10-11 14:35:52 | INFO     | __main__:run_spider_task:662 - 开始初始化浏览器...
+2025-10-11 14:35:52 | INFO     | __main__:setup_browser:202 - 成功启动Chromium浏览器
+2025-10-11 14:35:52 | INFO     | __main__:_load_cookies:616 - 找到Cookie文件: D:\myHome\project\ti-bao-py\command\pgy_playwright\cookies.json
+2025-10-11 14:35:52 | INFO     | __main__:_load_cookies:622 - 已成功加载 14 个Cookie
+2025-10-11 14:35:56 | INFO     | __main__:setup_browser:226 - Cookie有效，已自动登录
+2025-10-11 14:35:56 | INFO     | __main__:run_spider_task:664 - 浏览器初始化成功
+2025-10-11 14:35:56 | INFO     | __main__:run_spider_task:667 - 开始登录流程...
+2025-10-11 14:35:56 | INFO     | __main__:login:248 - 已处于登录状态
+2025-10-11 14:35:56 | INFO     | __main__:run_spider_task:673 - 登录成功，开始处理Excel数据...
+2025-10-11 14:35:56 | INFO     | __main__:process_excel_invites:366 - 开始处理Excel数据，共 1 行
+2025-10-11 14:35:56 | INFO     | __main__:process_excel_invites:382 - 处理第 1 行，提取的ID: 610b6bb5000000000100a157
+2025-10-11 14:35:56 | INFO     | __main__:_send_invite_form:407 - 开始发送第 1 行的邀约表单，ID: 610b6bb5000000000100a157
+2025-10-11 14:35:56 | INFO     | __main__:_send_invite_form:411 - 访问邀约表单页面: https://pgy.xiaohongshu.com/solar/pre-trade/invite-form?id=610b6bb5000000000100a157&trackId=
+2025-10-11 14:35:57 | INFO     | __main__:_send_invite_form:415 - 等待页面加载完成...
+2025-10-11 14:36:12 | ERROR    | __main__:_send_invite_form:419 - 等待页面加载完成时出错: Timeout 15000ms exceeded.
+2025-10-11 14:36:12 | INFO     | __main__:_check_page_loaded:449 - 页面标题: 发起邀约 - 小红书蒲公英
+2025-10-11 14:36:12 | INFO     | __main__:_check_page_loaded:457 - 找到 22 个表单元素
+2025-10-11 14:36:12 | INFO     | __main__:_try_reuse_previous_content:473 - 找到复用按钮，点击复用上回内容
+2025-10-11 14:36:14 | INFO     | __main__:_try_reuse_previous_content:479 - 复用成功，发现 2 个已填充字段
+2025-10-11 14:36:14 | INFO     | __main__:_fill_invite_form:489 - 开始填写邀约表单...
+2025-10-11 14:36:14 | INFO     | __main__:_fill_invite_form:499 - 填写产品名称: 你好
+2025-10-11 14:36:16 | INFO     | __main__:_fill_invite_form:509 - 填写产品类型描述: 你好
+2025-10-11 14:36:17 | INFO     | __main__:_fill_invite_form:515 - 邀约表单填写完成
+2025-10-11 14:36:37 | INFO     | __main__:_send_invite_form:436 - 第 1 行邀约表单发送成功
+2025-10-11 14:36:37 | INFO     | __main__:process_excel_invites:386 - 第 1 行邀约表单发送成功
+2025-10-11 14:36:43 | INFO     | __main__:process_excel_invites:397 - 所有邀约表单处理完成
+2025-10-11 14:36:43 | INFO     | __main__:run_spider_task:678 - 所有邀约表单处理完成
+2025-10-11 14:36:43 | INFO     | __main__:_save_cookies:605 - Cookie已保存到: D:\myHome\project\ti-bao-py\command\pgy_playwright\cookies.json
+2025-10-11 14:36:43 | INFO     | __main__:close:588 - 浏览器和playwright已关闭
+2025-10-11 14:36:43 | INFO     | __main__:run_spider_task:693 - 资源清理完成
+2025-10-11 14:42:19 | INFO     | __main__:setup_logger:86 - 日志文件保存路径: D:\myHome\project\ti-bao-py\command\pgy_playwright\logs
+2025-10-11 14:42:19 | INFO     | __main__:load_config:93 - 成功加载配置文件: D:\myHome\project\ti-bao-py\command\pgy_playwright\config.ini
+2025-10-11 14:42:19 | INFO     | __main__:run_spider_task:651 - 爬虫实例初始化成功
+2025-10-11 14:42:23 | INFO     | __main__:select_excel_file:125 - 已选择Excel文件: C:/Users/asus/Desktop/1111.xlsx
+2025-10-11 14:42:24 | INFO     | __main__:load_excel_data:144 - 成功加载Excel数据，共 1 行
+2025-10-11 14:42:24 | INFO     | __main__:load_excel_data:155 - 前3行数据预览:
+2025-10-11 14:42:24 | INFO     | __main__:load_excel_data:158 - 第1行 蒲公英链接: https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/610b6bb5000000000100a157
+2025-10-11 14:42:24 | INFO     | __main__:run_spider_task:664 - 开始初始化浏览器...
+2025-10-11 14:42:24 | INFO     | __main__:setup_browser:199 - 成功启动Chromium浏览器
+2025-10-11 14:42:24 | INFO     | __main__:_load_cookies:618 - 找到Cookie文件: D:\myHome\project\ti-bao-py\command\pgy_playwright\cookies.json
+2025-10-11 14:42:24 | INFO     | __main__:_load_cookies:624 - 已成功加载 14 个Cookie
+2025-10-11 14:42:29 | INFO     | __main__:setup_browser:223 - Cookie有效，已自动登录
+2025-10-11 14:42:29 | INFO     | __main__:run_spider_task:666 - 浏览器初始化成功
+2025-10-11 14:42:29 | INFO     | __main__:run_spider_task:669 - 开始登录流程...
+2025-10-11 14:42:29 | INFO     | __main__:login:245 - 已处于登录状态
+2025-10-11 14:42:29 | INFO     | __main__:run_spider_task:675 - 登录成功，开始处理Excel数据...
+2025-10-11 14:42:29 | INFO     | __main__:process_excel_invites:358 - 开始处理Excel数据，共 1 行
+2025-10-11 14:42:29 | INFO     | __main__:process_excel_invites:374 - 处理第 1 行，提取的ID: 610b6bb5000000000100a157
+2025-10-11 14:42:29 | INFO     | __main__:_send_invite_form:399 - 开始发送第 1 行的邀约表单，ID: 610b6bb5000000000100a157
+2025-10-11 14:42:29 | INFO     | __main__:_send_invite_form:403 - 访问邀约表单页面: https://pgy.xiaohongshu.com/solar/pre-trade/invite-form?id=610b6bb5000000000100a157&trackId=
+2025-10-11 14:42:29 | INFO     | __main__:_send_invite_form:407 - 等待页面加载完成...
+2025-10-11 14:42:44 | ERROR    | __main__:_send_invite_form:411 - 等待页面加载完成时出错: Timeout 15000ms exceeded.
+2025-10-11 14:42:44 | INFO     | __main__:_try_reuse_previous_content:440 - 找到复用按钮，点击复用上回内容
+2025-10-11 14:42:46 | INFO     | __main__:_try_reuse_previous_content:446 - 复用成功，发现 2 个已填充字段
+2025-10-11 14:42:46 | INFO     | __main__:_fill_invite_form:456 - 开始填写邀约表单...
+2025-10-11 14:42:46 | INFO     | __main__:_fill_invite_form:466 - 填写产品名称: 你好
+2025-10-11 14:42:46 | WARNING  | __main__:_fill_invite_form:473 - 填写产品名称时出错: 'ElementHandle' object has no attribute 'clear'
+2025-10-11 14:42:46 | INFO     | __main__:_fill_invite_form:479 - 填写合作内容介绍: 你好
+2025-10-11 14:42:46 | WARNING  | __main__:_fill_invite_form:486 - 填写合作内容介绍时出错: 'ElementHandle' object has no attribute 'clear'
+2025-10-11 14:42:46 | INFO     | __main__:_fill_invite_form:488 - 邀约表单填写完成
+2025-10-11 14:42:46 | INFO     | __main__:_send_invite_form:423 - 第 1 行邀约表单发送成功
+2025-10-11 14:42:46 | INFO     | __main__:process_excel_invites:378 - 第 1 行邀约表单发送成功
+2025-10-11 14:43:01 | INFO     | __main__:process_excel_invites:389 - 所有邀约表单处理完成
+2025-10-11 14:43:01 | INFO     | __main__:run_spider_task:680 - 所有邀约表单处理完成
+2025-10-11 14:43:01 | INFO     | __main__:_save_cookies:607 - Cookie已保存到: D:\myHome\project\ti-bao-py\command\pgy_playwright\cookies.json
+2025-10-11 14:43:01 | INFO     | __main__:close:590 - 浏览器和playwright已关闭
+2025-10-11 14:43:01 | INFO     | __main__:run_spider_task:695 - 资源清理完成
+2025-10-11 14:51:28 | INFO     | __main__:setup_logger:89 - 日志文件保存路径: D:\myHome\project\ti-bao-py\command\pgy_playwright\logs
+2025-10-11 14:51:28 | INFO     | __main__:load_config:96 - 成功加载配置文件: D:\myHome\project\ti-bao-py\command\pgy_playwright\config.ini
+2025-10-11 14:51:28 | INFO     | __main__:run_spider_task:548 - 爬虫实例初始化成功
+2025-10-11 14:51:33 | INFO     | __main__:select_excel_file:128 - 已选择Excel文件: C:/Users/asus/Desktop/1111.xlsx
+2025-10-11 14:51:33 | INFO     | __main__:load_excel_data:147 - 成功加载Excel数据，共 1 行
+2025-10-11 14:51:33 | INFO     | __main__:load_excel_data:158 - 前3行数据预览:
+2025-10-11 14:51:33 | INFO     | __main__:load_excel_data:161 - 第1行 蒲公英链接: https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/610b6bb5000000000100a157
+2025-10-11 14:51:33 | INFO     | __main__:run_spider_task:561 - 开始初始化浏览器...
+2025-10-11 14:51:34 | INFO     | __main__:setup_browser:202 - 成功启动Chromium浏览器
+2025-10-11 14:51:34 | INFO     | __main__:_load_cookies:515 - 找到Cookie文件: D:\myHome\project\ti-bao-py\command\pgy_playwright\cookies.json
+2025-10-11 14:51:34 | INFO     | __main__:_load_cookies:521 - 已成功加载 14 个Cookie
+2025-10-11 14:51:39 | INFO     | __main__:setup_browser:226 - Cookie有效，已自动登录
+2025-10-11 14:51:39 | INFO     | __main__:run_spider_task:563 - 浏览器初始化成功
+2025-10-11 14:51:39 | INFO     | __main__:run_spider_task:566 - 开始登录流程...
+2025-10-11 14:51:39 | INFO     | __main__:login:248 - 已处于登录状态
+2025-10-11 14:51:39 | INFO     | __main__:run_spider_task:572 - 登录成功，开始处理Excel数据...
+2025-10-11 14:51:39 | INFO     | __main__:process_excel_invites:311 - 开始处理Excel数据，共 1 行
+2025-10-11 14:51:39 | INFO     | __main__:process_excel_invites:327 - 处理第 1 行，提取的ID: 610b6bb5000000000100a157
+2025-10-11 14:51:39 | INFO     | __main__:_send_invite_form:352 - 开始发送第 1 行的邀约表单，ID: 610b6bb5000000000100a157
+2025-10-11 14:51:39 | INFO     | __main__:_send_invite_form:356 - 访问邀约表单页面: https://pgy.xiaohongshu.com/solar/pre-trade/invite-form?id=610b6bb5000000000100a157&trackId=
+2025-10-11 14:51:39 | INFO     | __main__:_send_invite_form:360 - 等待页面加载完成...
+2025-10-11 14:51:54 | ERROR    | __main__:_send_invite_form:364 - 等待页面加载完成时出错: Timeout 15000ms exceeded.
+2025-10-11 14:51:54 | INFO     | __main__:_try_reuse_previous_content:413 - 找到复用按钮，点击复用上回内容
+2025-10-11 14:51:56 | INFO     | __main__:_try_reuse_previous_content:419 - 复用成功，发现 2 个已填充字段
+2025-10-11 14:51:56 | INFO     | __main__:_fill_invite_form:429 - 开始填写邀约表单...
+2025-10-11 14:51:56 | INFO     | __main__:_fill_invite_form:439 - 填写产品名称: 小红书合作
+2025-10-11 14:51:58 | INFO     | __main__:_fill_invite_form:449 - 填写产品类型描述: 你好，小红书合作，辛苦留个联系方式
+2025-10-11 14:52:00 | INFO     | __main__:_fill_invite_form:455 - 邀约表单填写完成
+2025-10-11 14:52:00 | INFO     | __main__:_send_invite_form:378 - 准备点击确认发起邀约按钮...
+2025-10-11 14:52:00 | INFO     | __main__:_send_invite_form:382 - 找到确认发起邀约按钮，点击提交
+2025-10-11 14:52:04 | INFO     | __main__:_send_invite_form:387 - 邀约表单提交完成
+2025-10-11 14:52:04 | INFO     | __main__:_send_invite_form:396 - 第 1 行邀约表单发送成功
+2025-10-11 14:52:04 | INFO     | __main__:process_excel_invites:331 - 第 1 行邀约表单发送成功
+2025-10-11 14:52:12 | INFO     | __main__:process_excel_invites:342 - 所有邀约表单处理完成
+2025-10-11 14:52:12 | INFO     | __main__:run_spider_task:577 - 所有邀约表单处理完成
+2025-10-11 14:52:12 | INFO     | __main__:_save_cookies:504 - Cookie已保存到: D:\myHome\project\ti-bao-py\command\pgy_playwright\cookies.json
+2025-10-11 14:52:13 | INFO     | __main__:close:487 - 浏览器和playwright已关闭
+2025-10-11 14:52:13 | INFO     | __main__:run_spider_task:592 - 资源清理完成
+2025-10-11 14:53:12 | INFO     | __main__:setup_logger:89 - 日志文件保存路径: D:\myHome\project\ti-bao-py\command\pgy_playwright\logs
+2025-10-11 14:53:12 | INFO     | __main__:load_config:96 - 成功加载配置文件: D:\myHome\project\ti-bao-py\command\pgy_playwright\config.ini
+2025-10-11 14:53:12 | INFO     | __main__:run_spider_task:548 - 爬虫实例初始化成功
+2025-10-11 14:53:17 | INFO     | __main__:select_excel_file:128 - 已选择Excel文件: C:/Users/asus/Desktop/1111.xlsx
+2025-10-11 14:53:17 | INFO     | __main__:load_excel_data:147 - 成功加载Excel数据，共 1 行
+2025-10-11 14:53:17 | INFO     | __main__:load_excel_data:158 - 前3行数据预览:
+2025-10-11 14:53:17 | INFO     | __main__:load_excel_data:161 - 第1行 蒲公英链接: https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/610b6bb5000000000100a157
+2025-10-11 14:53:17 | INFO     | __main__:run_spider_task:561 - 开始初始化浏览器...
+2025-10-11 14:53:17 | INFO     | __main__:setup_browser:202 - 成功启动Chromium浏览器
+2025-10-11 14:53:17 | INFO     | __main__:_load_cookies:515 - 找到Cookie文件: D:\myHome\project\ti-bao-py\command\pgy_playwright\cookies.json
+2025-10-11 14:53:17 | INFO     | __main__:_load_cookies:521 - 已成功加载 14 个Cookie
+2025-10-11 14:53:22 | INFO     | __main__:setup_browser:226 - Cookie有效，已自动登录
+2025-10-11 14:53:22 | INFO     | __main__:run_spider_task:563 - 浏览器初始化成功
+2025-10-11 14:53:22 | INFO     | __main__:run_spider_task:566 - 开始登录流程...
+2025-10-11 14:53:22 | INFO     | __main__:login:248 - 已处于登录状态
+2025-10-11 14:53:22 | INFO     | __main__:run_spider_task:572 - 登录成功，开始处理Excel数据...
+2025-10-11 14:53:22 | INFO     | __main__:process_excel_invites:311 - 开始处理Excel数据，共 1 行
+2025-10-11 14:53:22 | INFO     | __main__:process_excel_invites:327 - 处理第 1 行，提取的ID: 610b6bb5000000000100a157
+2025-10-11 14:53:22 | INFO     | __main__:_send_invite_form:352 - 开始发送第 1 行的邀约表单，ID: 610b6bb5000000000100a157
+2025-10-11 14:53:22 | INFO     | __main__:_send_invite_form:356 - 访问邀约表单页面: https://pgy.xiaohongshu.com/solar/pre-trade/invite-form?id=610b6bb5000000000100a157&trackId=
+2025-10-11 14:53:22 | INFO     | __main__:_send_invite_form:360 - 等待页面加载完成...
+2025-10-11 14:53:37 | ERROR    | __main__:_send_invite_form:364 - 等待页面加载完成时出错: Timeout 15000ms exceeded.
+2025-10-11 14:53:37 | INFO     | __main__:_try_reuse_previous_content:413 - 找到复用按钮，点击复用上回内容
+2025-10-11 14:53:39 | INFO     | __main__:_try_reuse_previous_content:419 - 复用成功，发现 2 个已填充字段
+2025-10-11 14:53:39 | INFO     | __main__:_fill_invite_form:429 - 开始填写邀约表单...
+2025-10-11 14:53:39 | INFO     | __main__:_fill_invite_form:439 - 填写产品名称: 小红书合作
+2025-10-11 14:53:41 | INFO     | __main__:_fill_invite_form:449 - 填写产品类型描述: 你好，小红书合作，辛苦留个联系方式
+2025-10-11 14:53:43 | INFO     | __main__:_fill_invite_form:455 - 邀约表单填写完成
+2025-10-11 14:53:43 | INFO     | __main__:_send_invite_form:378 - 准备点击确认发起邀约按钮...
+2025-10-11 14:53:43 | INFO     | __main__:_send_invite_form:382 - 找到确认发起邀约按钮，点击提交
+2025-10-11 14:53:47 | INFO     | __main__:_send_invite_form:387 - 邀约表单提交完成
+2025-10-11 14:53:47 | INFO     | __main__:_send_invite_form:396 - 第 1 行邀约表单发送成功
+2025-10-11 14:53:47 | INFO     | __main__:process_excel_invites:331 - 第 1 行邀约表单发送成功
+2025-10-11 14:53:53 | INFO     | __main__:process_excel_invites:342 - 所有邀约表单处理完成
+2025-10-11 14:53:53 | INFO     | __main__:run_spider_task:577 - 所有邀约表单处理完成
+2025-10-11 14:53:53 | INFO     | __main__:_save_cookies:504 - Cookie已保存到: D:\myHome\project\ti-bao-py\command\pgy_playwright\cookies.json
+2025-10-11 14:53:53 | INFO     | __main__:close:487 - 浏览器和playwright已关闭
+2025-10-11 14:53:53 | INFO     | __main__:run_spider_task:592 - 资源清理完成

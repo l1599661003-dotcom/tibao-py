@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>创建插件图标</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .icon-preview {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .icon {
+            text-align: center;
+        }
+        .icon svg {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .instructions {
+            background: #e3f2fd;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #2196f3;
+            margin: 20px 0;
+        }
+        .instructions h3 {
+            margin-top: 0;
+            color: #1976d2;
+        }
+        .buttons {
+            text-align: center;
+            margin: 30px 0;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 0 10px;
+            transition: background 0.2s ease;
+        }
+        button:hover {
+            background: #5a6fd8;
+        }
+        .download-links {
+            margin: 20px 0;
+            text-align: center;
+        }
+        .download-links a {
+            display: inline-block;
+            margin: 5px 10px;
+            padding: 8px 16px;
+            background: #28a745;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .download-links a:hover {
+            background: #218838;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 任务管理插件图标生成器</h1>
+
+        <div class="instructions">
+            <h3>📝 使用说明</h3>
+            <p>1. 点击下方的"生成图标文件"按钮</p>
+            <p>2. 会自动下载3个PNG图标文件</p>
+            <p>3. 将下载的图标文件放入插件的 <code>icons/</code> 文件夹中</p>
+            <p>4. 重新加载浏览器插件即可</p>
+        </div>
+
+        <div class="icon-preview">
+            <div class="icon">
+                <svg width="16" height="16" viewBox="0 0 16 16" id="icon16">
+                    <rect width="16" height="16" fill="#667eea" rx="2"/>
+                    <rect x="3" y="4" width="2" height="2" fill="white" rx="1"/>
+                    <rect x="6" y="4" width="6" height="1" fill="white" rx="0.5"/>
+                    <rect x="3" y="7" width="2" height="2" fill="white" rx="1"/>
+                    <rect x="6" y="7" width="6" height="1" fill="white" rx="0.5"/>
+                    <rect x="3" y="10" width="2" height="2" fill="white" rx="1"/>
+                    <rect x="6" y="10" width="6" height="1" fill="white" rx="0.5"/>
+                </svg>
+                <p>16x16</p>
+            </div>
+            <div class="icon">
+                <svg width="48" height="48" viewBox="0 0 48 48" id="icon48">
+                    <rect width="48" height="48" fill="#667eea" rx="6"/>
+                    <rect x="8" y="12" width="6" height="6" fill="white" rx="2"/>
+                    <rect x="18" y="14" width="18" height="2" fill="white" rx="1"/>
+                    <rect x="8" y="21" width="6" height="6" fill="white" rx="2"/>
+                    <rect x="18" y="23" width="18" height="2" fill="white" rx="1"/>
+                    <rect x="8" y="30" width="6" height="6" fill="white" rx="2"/>
+                    <rect x="18" y="32" width="18" height="2" fill="white" rx="1"/>
+                </svg>
+                <p>48x48</p>
+            </div>
+            <div class="icon">
+                <svg width="128" height="128" viewBox="0 0 128 128" id="icon128">
+                    <defs>
+                        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+                        </linearGradient>
+                    </defs>
+                    <rect width="128" height="128" fill="url(#grad)" rx="16"/>
+                    <rect x="20" y="30" width="16" height="16" fill="white" rx="4"/>
+                    <rect x="45" y="34" width="55" height="8" fill="white" rx="4"/>
+                    <rect x="20" y="56" width="16" height="16" fill="white" rx="4"/>
+                    <rect x="45" y="60" width="55" height="8" fill="white" rx="4"/>
+                    <rect x="20" y="82" width="16" height="16" fill="white" rx="4"/>
+                    <rect x="45" y="86" width="55" height="8" fill="white" rx="4"/>
+                </svg>
+                <p>128x128</p>
+            </div>
+        </div>
+
+        <div class="buttons">
+            <button onclick="generateIcons()">🎨 生成图标文件</button>
+            <button onclick="window.open('data:text/plain;charset=utf-8,' + encodeURIComponent(getManifestWithIcons()), '_blank')">📄 查看完整manifest.json</button>
+        </div>
+
+        <div class="download-links" id="downloadLinks" style="display: none;">
+            <h3>📥 下载生成的图标文件</h3>
+        </div>
+    </div>
+
+    <script>
+        function svgToPng(svgElement, size) {
+            return new Promise((resolve) => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = size;
+                canvas.height = size;
+
+                const svgData = new XMLSerializer().serializeToString(svgElement);
+                const svgBlob = new Blob([svgData], {type: 'image/svg+xml;charset=utf-8'});
+                const svgUrl = URL.createObjectURL(svgBlob);
+
+                const img = new Image();
+                img.onload = function() {
+                    ctx.drawImage(img, 0, 0);
+                    URL.revokeObjectURL(svgUrl);
+                    canvas.toBlob(resolve, 'image/png');
+                };
+                img.src = svgUrl;
+            });
+        }
+
+        async function generateIcons() {
+            const downloadLinks = document.getElementById('downloadLinks');
+            downloadLinks.innerHTML = '<h3>📥 正在生成图标文件...</h3>';
+            downloadLinks.style.display = 'block';
+
+            const sizes = [16, 48, 128];
+            const links = [];
+
+            for (const size of sizes) {
+                const svgElement = document.getElementById(`icon${size}`);
+                const pngBlob = await svgToPng(svgElement, size);
+                const url = URL.createObjectURL(pngBlob);
+
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `icon${size}.png`;
+                a.textContent = `下载 icon${size}.png`;
+                a.onclick = () => {
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                };
+
+                links.push(a);
+            }
+
+            downloadLinks.innerHTML = '<h3>📥 点击下载图标文件</h3>';
+            links.forEach(link => {
+                downloadLinks.appendChild(link);
+                downloadLinks.appendChild(document.createElement('br'));
+            });
+        }
+
+        function getManifestWithIcons() {
+            return `{
+  "manifest_version": 3,
+  "name": "任务管理插件",
+  "version": "1.0.0",
+  "description": "一个功能完整的任务管理浏览器插件，支持日、周、月视图",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "任务管理"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [],
+  "background": {
+    "service_worker": "background.js"
+  }
+}`;
+        }
+    </script>
+</body>
+</html>

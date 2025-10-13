@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工作清单</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 头部 -->
+        <div class="header">
+            <div class="header-content">
+                <h1>📋 工作清单</h1>
+                <div class="view-switcher">
+                    <button id="dayView" class="view-btn active">日视图</button>
+                    <button id="weekView" class="view-btn">周视图</button>
+                    <button id="monthView" class="view-btn">月视图</button>
+                    <button id="overviewView" class="view-btn">总览</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 日期导航 -->
+        <div class="date-navigation">
+            <button id="prevPeriod" class="nav-btn">‹</button>
+            <div class="date-info">
+                <span id="currentPeriod" class="current-date">2024年1月1日</span>
+                <span id="dateSubtitle" class="date-subtitle">今日任务清单</span>
+            </div>
+            <button id="nextPeriod" class="nav-btn">›</button>
+        </div>
+
+        <!-- 主内容区 -->
+        <div class="main-content">
+            <!-- 日视图 -->
+            <div id="day-view" class="view-content active">
+                <div class="task-input-section">
+                    <div class="input-group">
+                        <input type="text" id="dayTaskInput" class="task-input" placeholder="添加本月任务...">
+                        <button id="addDayTaskBtn" class="add-btn">+</button>
+                    </div>
+                </div>
+
+                <div class="task-section">
+                    <div class="section-header">
+                        <h3>今日任务</h3>
+                        <span id="dayTaskCount" class="task-count">0 项任务</span>
+                    </div>
+                    <div class="task-list" id="dayTaskList">
+                        <!-- 今日任务清单将在这里动态生成 -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 周视图 -->
+            <div id="week-view" class="view-content">
+                <div class="task-input-section">
+                    <div class="input-group">
+                        <input type="text" id="weekTaskInput" class="task-input" placeholder="添加本月任务...">
+                        <button id="addWeekTaskBtn" class="add-btn">+</button>
+                    </div>
+                </div>
+
+                <div class="week-container">
+                    <div class="week-section" data-week="1">
+                        <div class="week-header">
+                            <h3>第1周</h3>
+                            <span id="week1Count" class="task-count">0 项任务</span>
+                        </div>
+                        <div class="task-list" id="week1TaskList"></div>
+                    </div>
+
+                    <div class="week-section" data-week="2">
+                        <div class="week-header">
+                            <h3>第2周</h3>
+                            <span id="week2Count" class="task-count">0 项任务</span>
+                        </div>
+                        <div class="task-list" id="week2TaskList"></div>
+                    </div>
+
+                    <div class="week-section" data-week="3">
+                        <div class="week-header">
+                            <h3>第3周</h3>
+                            <span id="week3Count" class="task-count">0 项任务</span>
+                        </div>
+                        <div class="task-list" id="week3TaskList"></div>
+                    </div>
+
+                    <div class="week-section" data-week="4">
+                        <div class="week-header">
+                            <h3>第4周</h3>
+                            <span id="week4Count" class="task-count">0 项任务</span>
+                        </div>
+                        <div class="task-list" id="week4TaskList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 月视图 -->
+            <div id="month-view" class="view-content">
+                <div class="task-input-section">
+                    <div class="input-group">
+                        <input type="text" id="monthTaskInput" class="task-input" placeholder="添加月度任务...">
+                        <button id="addMonthTaskBtn" class="add-btn">+</button>
+                    </div>
+                </div>
+
+                <div class="task-section">
+                    <div class="section-header">
+                        <h3>月度任务</h3>
+                        <span id="monthTaskCount" class="task-count">0 项任务</span>
+                    </div>
+                    <div class="task-list" id="monthTaskList">
+                        <!-- 月度任务将在这里动态生成 -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 总览视图 -->
+            <div id="overview-view" class="view-content">
+                <div class="overview-tabs">
+                    <button id="overviewDaily" class="overview-tab-btn active">日任务总览</button>
+                    <button id="overviewWeekly" class="overview-tab-btn">周任务总览</button>
+                    <button id="overviewMonthly" class="overview-tab-btn">月任务总览</button>
+                </div>
+
+                <div class="overview-content">
+                    <!-- 日任务总览 -->
+                    <div id="overview-daily-content" class="overview-tab-content active">
+                        <div class="overview-matrix" id="overviewDailyMatrix">
+                            <!-- 日任务完成情况矩阵 -->
+                        </div>
+                    </div>
+
+                    <!-- 周任务总览 -->
+                    <div id="overview-weekly-content" class="overview-tab-content">
+                        <div class="overview-matrix" id="overviewWeeklyMatrix">
+                            <!-- 周任务完成情况矩阵 -->
+                        </div>
+                    </div>
+
+                    <!-- 月任务总览 -->
+                    <div id="overview-monthly-content" class="overview-tab-content">
+                        <div class="overview-matrix" id="overviewMonthlyMatrix">
+                            <!-- 月任务完成情况矩阵 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 空状态 -->
+            <div class="empty-state" id="emptyState">
+                <div class="empty-icon">📝</div>
+                <div class="empty-text">还没有任务</div>
+                <div class="empty-hint">添加第一个任务开始管理</div>
+            </div>
+        </div>
+
+        <!-- 底部统计 -->
+        <div class="status-bar">
+            <div class="status-info">
+                <span id="totalTasks" class="status-item">总任务: 0</span>
+                <span id="completedTasks" class="status-item">已完成: 0</span>
+                <span id="completionRate" class="status-item">完成率: 0%</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+    <script src="data-manager.js"></script>
+</body>
+</html>

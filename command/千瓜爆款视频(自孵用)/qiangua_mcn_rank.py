@@ -441,30 +441,75 @@ class QianguaMcnRankSpider:
             target_text = f"{year} 年 {month} 月"
             logger.info(f"选择日期范围: {target_text}")
 
-            # 按照完整的DOM路径在弹出框内查找并点击日期输入框
-            clicked = self.page.evaluate('''
+            # 在弹出框内查找并点击日期输入框(按照完整DOM路径)
+            result = self.page.evaluate('''
                 () => {
-                    // 完整路径: .el-dialog__body -> .mcn-detail-wrapper -> .mcn-bd-tabs... -> .el-tabs__content
-                    // -> #pane-brand -> .img-permission-wrapper -> .brand-wrap -> .date-picker.range-picker-wrapper
-                    const input = document.querySelector(
-                        '.el-dialog__body .mcn-detail-wrapper .mcn-bd-tabs.qg-tabs.l32.el-tabs.el-tabs--top ' +
-                        '.el-tabs__content #pane-brand .img-permission-wrapper .brand-wrap ' +
-                        '.date-picker.range-picker-wrapper .el-range-input'
-                    );
-
-                    if (input) {
-                        input.click();
-                        console.log('成功点击弹出框内的日期输入框');
-                        return true;
+                    const dialog = document.querySelector('.el-dialog__body');
+                    if (!dialog) {
+                        return {success: false, message: '未找到弹出框(.el-dialog__body)'};
                     }
 
-                    console.log('未找到弹出框内的日期输入框');
-                    return false;
+                    const mcnDetailWrapper = dialog.querySelector('.mcn-detail-wrapper');
+                    if (!mcnDetailWrapper) {
+                        return {success: false, message: '未找到.mcn-detail-wrapper'};
+                    }
+
+                    const tabsContent = mcnDetailWrapper.querySelector('.el-tabs__content');
+                    if (!tabsContent) {
+                        return {success: false, message: '未找到.el-tabs__content'};
+                    }
+
+                    const panesBrand = tabsContent.querySelector('#pane-brand');
+                    if (!panesBrand) {
+                        return {success: false, message: '未找到#pane-brand'};
+                    }
+
+                    const imgPermissionWrapper = panesBrand.querySelector('.img-permission-wrapper');
+                    if (!imgPermissionWrapper) {
+                        return {success: false, message: '未找到.img-permission-wrapper'};
+                    }
+
+                    const brandWrap = imgPermissionWrapper.querySelector('.brand-wrap');
+                    if (!brandWrap) {
+                        return {success: false, message: '未找到.brand-wrap'};
+                    }
+
+                    const datePickerWrapper = brandWrap.querySelector('.date-picker.range-picker-wrapper');
+                    if (!datePickerWrapper) {
+                        return {success: false, message: '未找到.date-picker.range-picker-wrapper'};
+                    }
+
+                    const eventWidthContainer = datePickerWrapper.querySelector('.event-width-container.width-monitoring-wrap');
+                    if (!eventWidthContainer) {
+                        return {success: false, message: '未找到.event-width-container.width-monitoring-wrap'};
+                    }
+
+                    // 获取第三个div
+                    const divs = eventWidthContainer.querySelectorAll(':scope > div');
+                    if (divs.length < 3) {
+                        return {success: false, message: 'event-width-container下的div数量不足3个,只有' + divs.length + '个'};
+                    }
+
+                    const thirdDiv = divs[2]; // 索引为2是第三个
+                    const dateEditor = thirdDiv.querySelector('.el-date-editor--daterange');
+                    if (!dateEditor) {
+                        return {success: false, message: '在第三个div中未找到.el-date-editor--daterange'};
+                    }
+
+                    const input = dateEditor.querySelector('.el-range-input');
+                    if (!input) {
+                        return {success: false, message: '在日期选择器中未找到.el-range-input'};
+                    }
+
+                    input.click();
+                    return {success: true, message: '成功点击日期输入框'};
                 }
             ''')
 
-            if not clicked:
-                logger.error("未找到弹出框内的日期输入框")
+            logger.info(f"日期输入框点击结果: {result['message']}")
+
+            if not result['success']:
+                logger.error(f"未找到弹出框内的日期输入框: {result['message']}")
                 return False
 
             time.sleep(2)

@@ -321,20 +321,7 @@ class QianguaMcnRankSpider:
                     processed_entries.append(entry)
                     continue
 
-                blogger_ids = [item.get('Id') for item in item_list if item.get('Id') is not None]
-                existing_map = {}
-                if blogger_ids:
-                    existing_records = (
-                        session.query(QgBloggerRank)
-                        .filter(QgBloggerRank.qg_blogger_id.in_(blogger_ids))
-                        .all()
-                    )
-                    existing_map = {record.qg_blogger_id: record for record in existing_records}
-
                 for item in item_list:
-                    blogger_id = item.get('Id')
-                    if blogger_id is None:
-                        continue
 
                     tags_text = item.get('BloggerTags')
                     if not tags_text:
@@ -354,7 +341,6 @@ class QianguaMcnRankSpider:
                         increase_value_decimal = Decimal('0.00')
 
                     payload = {
-                        'qg_blogger_id': blogger_id,
                         'nickname': item.get('NickName') or '',
                         'rank_number': item.get('RankNumber') or 0,
                         'change_number': item.get('ChangeNumber') or 0,
@@ -374,7 +360,8 @@ class QianguaMcnRankSpider:
                         'current_user_is_favorite': 1 if item.get('CurrentUserIsFavorite') else 0,
                     }
 
-                    record = existing_map.get(blogger_id)
+                    record = session.query(QgBloggerRank).filter(QgBloggerRank.nickname == item.get('NickName')).first()
+
                     if record:
                         for field, value in payload.items():
                             setattr(record, field, value)

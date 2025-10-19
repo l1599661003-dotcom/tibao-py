@@ -76,12 +76,13 @@ class QianguaMcnRankSpider:
             headless=False,
             channel="chrome",  # 使用Chrome而不是Chromium
             executable_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            viewport={'width': 1512, 'height': 768},
+            no_viewport=True,  # 不设置固定viewport，允许窗口最大化
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             args=[
                 '--disable-blink-features=AutomationControlled',  # 隐藏自动化特征
                 '--no-sandbox',
                 '--disable-web-security',
+                '--start-maximized',  # 启动时最大化
             ]
         )
         self.browser = None  # 使用persistent context时不需要browser对象
@@ -228,9 +229,14 @@ class QianguaMcnRankSpider:
                                 'processed': False
                             })
 
-                            # 打印接口数据
-                            logger.info(f"{api_name} 接口数据:")
-                            logger.info(json.dumps(response_data, ensure_ascii=False, indent=2))
+                            # 对于GetMcnBrandList接口，只打印ItemList长度
+                            if api_name == 'GetMcnBrandList':
+                                item_list = response_data.get('Data', {}).get('ItemList', [])
+                                logger.info(f"GetMcnBrandList接口返回 {len(item_list)} 条品牌数据")
+                            else:
+                                # 其他接口打印完整数据
+                                logger.info(f"{api_name} 接口数据:")
+                                logger.info(json.dumps(response_data, ensure_ascii=False, indent=2))
 
                         except Exception as e:
                             logger.error(f"解析{api_name}接口响应数据时出错: {str(e)}")
@@ -441,12 +447,12 @@ class QianguaMcnRankSpider:
             target_text = f"{year} 年 {month} 月"
             logger.info(f"选择日期范围: {target_text}")
 
-            # 在弹出框内查找并点击日期输入框(按照完整DOM路径)
+            # 在弹出框内查找并点击日期输入框(按照简化DOM路径)
             result = self.page.evaluate('''
                 () => {
                     const dialog = document.querySelector('.el-dialog__body');
                     if (!dialog) {
-                        return {success: false, message: '未找到弹出框(.el-dialog__body)'};
+                        return {success: false, message: '未找到.el-dialog__body'};
                     }
 
                     const mcnDetailWrapper = dialog.querySelector('.mcn-detail-wrapper');
@@ -491,27 +497,40 @@ class QianguaMcnRankSpider:
                     }
 
                     const thirdDiv = divs[2]; // 索引为2是第三个
+                    
+                    // 获取日期选择器的位置信息
                     const dateEditor = thirdDiv.querySelector('.el-date-editor--daterange');
                     if (!dateEditor) {
-                        return {success: false, message: '在第三个div中未找到.el-date-editor--daterange'};
+                        return {success: false, message: '未找到日期选择器'};
                     }
-
-                    const input = dateEditor.querySelector('.el-range-input');
-                    if (!input) {
-                        return {success: false, message: '在日期选择器中未找到.el-range-input'};
-                    }
-
-                    input.click();
-                    return {success: true, message: '成功点击日期输入框'};
+                    
+                    const rect = dateEditor.getBoundingClientRect();
+                    return {
+                        success: true, 
+                        message: '找到日期选择器',
+                        x: rect.left + rect.width / 2,
+                        y: rect.top + rect.height / 2,
+                        width: rect.width,
+                        height: rect.height
+                    };
                 }
             ''')
 
-            logger.info(f"日期输入框点击结果: {result['message']}")
+            logger.info(f"日期选择器位置: {result['message']}")
 
             if not result['success']:
-                logger.error(f"未找到弹出框内的日期输入框: {result['message']}")
+                logger.error(f"未找到日期选择器: {result['message']}")
                 return False
 
+            # 使用坐标点击日期选择器的中心位置
+            click_x = result['x']
+            click_y = result['y']
+            
+            logger.info(f"准备点击坐标: x={click_x}, y={click_y}")
+            
+            # 使用page.mouse.click点击指定坐标
+            self.page.mouse.click(click_x, click_y)
+            logger.info(f"已点击日期选择器坐标")
             time.sleep(2)
             logger.info("成功打开日期选择器")
 
@@ -709,32 +728,6 @@ class QianguaMcnRankSpider:
             logger.info("成功点击最后一天")
             time.sleep(2)
 
-            # 日期选择完成后,向下滚动一点点,触发数据加载
-            logger.info("向下滚动页面,触发数据加载...")
-            self.page.evaluate('''
-                () => {
-                    window.scrollBy(0, 100);
-                }
-            ''')
-            time.sleep(1)
-
-            # 等待GetMcnBrandList接口响应
-            logger.info("等待GetMcnBrandList接口响应...")
-            wait_start = time.time()
-            max_wait = 10  # 最多等待10秒
-
-            while time.time() - wait_start < max_wait:
-                if 'GetMcnBrandList' in self.api_data and len(self.api_data['GetMcnBrandList']) > 0:
-                    # 检查最新的接口是否成功
-                    latest_data = self.api_data['GetMcnBrandList'][-1]
-                    response_data = latest_data.get('data', {})
-                    if response_data.get('Code') == 0:
-                        logger.info("GetMcnBrandList接口响应成功")
-                        break
-                    elif response_data.get('Code') == 500:
-                        logger.warning(f"GetMcnBrandList接口返回错误: {response_data.get('Msg')}")
-                time.sleep(0.5)
-
             logger.info(f"{year}年{month}月日期范围选择完成")
             return True
         except Exception as e:
@@ -793,8 +786,26 @@ class QianguaMcnRankSpider:
 
             if clicked:
                 logger.info("成功点击预估合作费用排序")
-                time.sleep(3)
-                self.page.wait_for_load_state('networkidle', timeout=10000)
+                time.sleep(2)
+                
+                # 等待GetMcnBrandList接口响应
+                logger.info("等待GetMcnBrandList接口响应...")
+                wait_start = time.time()
+                max_wait = 10  # 最多等待10秒
+
+                while time.time() - wait_start < max_wait:
+                    if 'GetMcnBrandList' in self.api_data and len(self.api_data['GetMcnBrandList']) > 0:
+                        # 检查最新的接口是否成功
+                        latest_data = self.api_data['GetMcnBrandList'][-1]
+                        response_data = latest_data.get('data', {})
+                        if response_data.get('Code') == 0:
+                            logger.info(f"GetMcnBrandList接口响应成功,已获取数据")
+                            break
+                        elif response_data.get('Code') == 500:
+                            logger.warning(f"GetMcnBrandList接口返回错误: {response_data.get('Msg')}")
+                    time.sleep(0.5)
+                
+                logger.info(f"当前已获取 {len(self.api_data.get('GetMcnBrandList', []))} 条GetMcnBrandList数据")
                 return True
             else:
                 logger.error("未找到预估合作费用排序按钮")
@@ -808,37 +819,71 @@ class QianguaMcnRankSpider:
         try:
             logger.info(f"开始滚动加载品牌数据,最多加载 {max_records} 条...")
 
-            loaded_count = 0
-            no_more_data = False
-
-            while loaded_count < max_records and not no_more_data:
-                # 获取当前已加载的数据条数
-                current_count = self.page.evaluate('''
-                    () => {
-                        return document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom').length;
+            # 首先滚动el-tabs__content到底部
+            logger.info("先滚动el-tabs__content到底部...")
+            self.page.evaluate('''
+                () => {
+                    const tabsContent = document.querySelector('.el-tabs__content');
+                    if (tabsContent) {
+                        tabsContent.scrollTop = tabsContent.scrollHeight;
+                        console.log('已滚动el-tabs__content到底部');
                     }
-                ''')
+                }
+            ''')
+            time.sleep(2)
 
-                logger.info(f"当前已加载 {current_count} 条品牌数据")
-
-                if current_count >= max_records:
-                    logger.info(f"已达到最大记录数 {max_records},停止加载")
+            # 清空之前可能触发的GetMcnBrandList接口数据
+            if 'GetMcnBrandList' in self.api_data:
+                self.api_data['GetMcnBrandList'] = []
+            
+            # 在指定位置持续滚轮滚动，直到GetMcnBrandList接口出现
+            logger.info("移动鼠标到品牌列表位置(931, 575)并滚动，等待接口响应...")
+            self.page.mouse.move(931, 575)
+            time.sleep(0.5)
+            
+            max_scroll_attempts = 20  # 最多滚动20次
+            scroll_attempt = 0
+            
+            while scroll_attempt < max_scroll_attempts:
+                # 向下滚动鼠标滚轮
+                self.page.mouse.wheel(0, 300)  # 增大滚动量
+                scroll_attempt += 1
+                logger.info(f"第 {scroll_attempt} 次鼠标滚轮滚动...")
+                time.sleep(1)
+                
+                # 检查是否有GetMcnBrandList接口响应
+                if 'GetMcnBrandList' in self.api_data and len(self.api_data['GetMcnBrandList']) > 0:
+                    logger.info(f"检测到GetMcnBrandList接口响应，停止鼠标滚轮滚动")
                     break
+            
+            if scroll_attempt >= max_scroll_attempts:
+                logger.warning("鼠标滚轮滚动达到最大次数，但未检测到接口响应")
 
-                # 滚动到底部
-                prev_count = current_count
-                self.page.evaluate('''
-                    () => {
-                        const scrollContainer = document.querySelector('.list-bd.page-component__scroll');
-                        if (scrollContainer) {
-                            scrollContainer.scrollTop = scrollContainer.scrollHeight;
-                        }
-                    }
-                ''')
+            # 然后使用鼠标滚轮滚动品牌列表
+            logger.info("开始使用鼠标滚轮滚动品fex牌列表...")
+            
+            # 先获取初始已有的数据条数
+            initial_count = self.page.evaluate('''
+                () => {
+                    return document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom').length;
+                }
+            ''')
+            logger.info(f"初始已有 {initial_count} 条品牌数据")
+            
+            prev_count = initial_count
+            no_more_data = False
+            scroll_count = 0
+            consecutive_no_change = 0  # 连续没有变化的次数
 
+            while prev_count < max_records and not no_more_data:
+                scroll_count += 1
+                
+                # 使用鼠标滚轮向下滚动
+                self.page.mouse.wheel(0, 500)  # 增大滚动量
+                
                 # 随机等待
                 delay = random.uniform(self.scroll_delay_min, self.scroll_delay_max)
-                logger.info(f"等待 {delay:.2f} 秒...")
+                logger.info(f"第 {scroll_count} 次鼠标滚轮滚动,等待 {delay:.2f} 秒...")
                 time.sleep(delay)
 
                 # 检查是否有新数据加载
@@ -849,11 +894,28 @@ class QianguaMcnRankSpider:
                 ''')
 
                 if new_count == prev_count:
-                    logger.info("没有更多数据,停止滚动")
-                    no_more_data = True
+                    consecutive_no_change += 1
+                    logger.info(f"当前仍为 {new_count} 条数据，连续 {consecutive_no_change} 次无变化")
+                    
+                    # 连续3次没有变化才认为没有更多数据
+                    if consecutive_no_change >= 3:
+                        logger.info("连续3次滚动无新数据,停止滚动")
+                        no_more_data = True
                 else:
-                    loaded_count = new_count
+                    consecutive_no_change = 0  # 重置计数器
+                    logger.info(f"当前已加载 {new_count} 条品牌数据 (初始 {initial_count} + 新增 {new_count - initial_count})")
+                    prev_count = new_count
+                    
+                if prev_count >= max_records:
+                    logger.info(f"已达到最大记录数 {max_records},停止加载")
+                    break
 
+            # 统计本次滚动总共获取的API数据
+            total_api_count = len(self.api_data.get('GetMcnBrandList', []))
+            logger.info(f"滚动完成,共滚动 {scroll_count} 次,获取 {total_api_count} 次GetMcnBrandList接口数据")
+            total_api_count = len(self.api_data.get('GetMcnBrandList', []))
+            logger.info(f"滚动完成,共滚动 {scroll_count} 次,获取 {total_api_count} 次GetMcnBrandList接口数据")
+            
             final_count = self.page.evaluate('''
                 () => {
                     return document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom').length;
@@ -875,16 +937,25 @@ class QianguaMcnRankSpider:
             if 'GetMcnBrandNoteList' in self.api_data:
                 self.api_data['GetMcnBrandNoteList'] = []
 
-            # 点击查看链接
+            # 点击查看链接 (list-row下第二个div里的col-cell里的div里的a标签)
             clicked = self.page.evaluate(f'''
                 () => {{
                     const listItems = document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom');
                     if (listItems.length > {index}) {{
                         const item = listItems[{index}];
-                        const viewLink = item.querySelector('.list-row .col-item.undefined .col-cell div a.text-link.c-split-line');
-                        if (viewLink && viewLink.textContent.trim() === '查看') {{
-                            viewLink.click();
-                            return true;
+                        const listRow = item.querySelector('.list-row');
+                        if (listRow) {{
+                            // 获取list-row下的第二个div
+                            const divs = listRow.querySelectorAll(':scope > div');
+                            if (divs.length >= 2) {{
+                                const secondDiv = divs[1];
+                                const viewLink = secondDiv.querySelector('.col-cell div a.text-link.c-split-line');
+                                if (viewLink) {{
+                                    viewLink.click();
+                                    console.log('点击了查看链接:', viewLink.textContent);
+                                    return true;
+                                }}
+                            }}
                         }}
                     }}
                     return false;
@@ -936,20 +1007,16 @@ class QianguaMcnRankSpider:
             ''')
             time.sleep(3)
 
-            # 按两次ESC键返回
-            logger.info("按ESC键返回...")
+            # 按一次ESC键返回品牌列表
+            logger.info("按ESC键返回品牌列表...")
             self.page.keyboard.press('Escape')
             time.sleep(1)
-            self.page.keyboard.press('Escape')
-            time.sleep(2)
 
             return True
         except Exception as e:
             logger.error(f"点击第 {index + 1} 个品牌并查看详情时出错: {str(e)}")
             # 尝试返回
             try:
-                self.page.keyboard.press('Escape')
-                time.sleep(1)
                 self.page.keyboard.press('Escape')
                 time.sleep(1)
             except:
@@ -1019,6 +1086,11 @@ class QianguaMcnRankSpider:
                         logger.info(f"处理第 {brand_index + 1}/{actual_brand_count} 个品牌")
                         self.click_brand_item_and_view(brand_index)
                         time.sleep(2)
+
+                    # 所有品牌处理完成后,按第二次ESC返回
+                    logger.info(f"所有品牌处理完成,按第二次ESC返回...")
+                    self.page.keyboard.press('Escape')
+                    time.sleep(2)
 
                     logger.info(f"{year_month} 月份处理完成")
 

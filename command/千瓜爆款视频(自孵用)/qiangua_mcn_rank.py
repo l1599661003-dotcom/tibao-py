@@ -15,7 +15,7 @@ import random
 from sqlalchemy.exc import SQLAlchemyError
 
 from core.localhost_fp_project import session
-from models.models import QgBloggerRank
+from models.models import QgBloggerRank, QgBrandInfo
 
 """
     获取千瓜MCN商业收入榜数据
@@ -254,27 +254,11 @@ class QianguaMcnRankSpider:
                             if api_name == 'GetMcnBrandList':
                                 item_list = response_data.get('Data', {}).get('ItemList', [])
                                 logger.info(f"GetMcnBrandList接口返回 {len(item_list)} 条品牌数据")
-                            if item_list:
-                                max_preview = min(5, len(item_list))
-                                for brand in item_list[:max_preview]:
-                                    brand_name = (
-                                        brand.get('BrandName')
-                                        or brand.get('BrandNickName')
-                                        or brand.get('Name')
-                                        or '未知品牌'
-                                    )
-                                    estimate_cost = (
-                                        brand.get('EstimateCooperationFee')
-                                        or brand.get('EstimateCooperationCost')
-                                        or brand.get('CooperationFee')
-                                        or brand.get('CooperationCost')
-                                    )
-                                    logger.info(
-                                        f"品牌信息: 名称={brand_name}, 预估费用={estimate_cost}, "
-                                        f"品牌ID={brand.get('BrandId') or brand.get('Id')}"
-                                    )
-                                if len(item_list) > max_preview:
-                                    logger.info(f"品牌列表预览 {max_preview} 条，共 {len(item_list)} 条")
+
+                                for brand in item_list:
+                                    logger.info("品牌数据:")
+                                    logger.info(json.dumps(brand, ensure_ascii=False, indent=2))
+
                                 logger.info("GetMcnBrandList接口完整数据:")
                                 logger.info(json.dumps(response_data, ensure_ascii=False, indent=2))
                             elif api_name == 'GetMcnRankData':
@@ -337,8 +321,20 @@ class QianguaMcnRankSpider:
                     processed_entries.append(entry)
                     continue
 
+                blogger_ids = [item.get('Id') for item in item_list if item.get('Id') is not None]
+                existing_map = {}
+                if blogger_ids:
+                    existing_records = (
+                        session.query(QgBloggerRank)
+                        .filter(QgBloggerRank.qg_blogger_id.in_(blogger_ids))
+                        .all()
+                    )
+                    existing_map = {record.qg_blogger_id: record for record in existing_records}
 
                 for item in item_list:
+                    blogger_id = item.get('Id')
+                    if blogger_id is None:
+                        continue
 
                     tags_text = item.get('BloggerTags')
                     if not tags_text:
@@ -358,6 +354,7 @@ class QianguaMcnRankSpider:
                         increase_value_decimal = Decimal('0.00')
 
                     payload = {
+                        'qg_blogger_id': blogger_id,
                         'nickname': item.get('NickName') or '',
                         'rank_number': item.get('RankNumber') or 0,
                         'change_number': item.get('ChangeNumber') or 0,
@@ -377,8 +374,7 @@ class QianguaMcnRankSpider:
                         'current_user_is_favorite': 1 if item.get('CurrentUserIsFavorite') else 0,
                     }
 
-                    record = session.query(QgBloggerRank).filter(QgBloggerRank.nickname == item.get('NickName')).first()
-
+                    record = existing_map.get(blogger_id)
                     if record:
                         for field, value in payload.items():
                             setattr(record, field, value)
@@ -399,6 +395,8 @@ class QianguaMcnRankSpider:
 
             for entry in processed_entries:
                 entry['processed'] = True
+
+            self.api_data['GetMcnRankData'] = [entry for entry in rank_entries if not entry.get('processed')]
             return inserted > 0 or updated > 0
         except SQLAlchemyError as db_err:
             session.rollback()
@@ -407,6 +405,95 @@ class QianguaMcnRankSpider:
         except Exception as e:
             session.rollback()
             logger.error(f"机构 {org_name} 排行数据处理异常: {str(e)}")
+            return False
+
+
+    def save_brand_data_to_db(self, org_name):
+        """处理品牌列表数据写入数据库"""
+        try:
+            brand_entries = self.api_data.get('GetMcnBrandList', [])
+            if not brand_entries:
+                logger.warning(f"未捕获机构 {org_name} 的品牌数据,跳过入库")
+                return False
+
+            inserted = 0
+            updated = 0
+            processed_entries = []
+
+            for entry in brand_entries:
+                if entry.get('processed'):
+                    continue
+
+                response_data = entry.get('data') or {}
+                item_list = (response_data.get('Data') or {}).get('ItemList') or []
+                if not item_list:
+                    processed_entries.append(entry)
+                    continue
+
+                brand_ids = [item.get('BrandId') for item in item_list if item.get('BrandId') is not None]
+                existing_map = {}
+                if brand_ids:
+                    existing_records = (
+                        session.query(QgBrandInfo)
+                        .filter(QgBrandInfo.brand_id.in_(brand_ids))
+                        .all()
+                    )
+                    existing_map = {record.brand_id: record for record in existing_records}
+
+                for item in item_list:
+                    brand_id = item.get('BrandId')
+                    if brand_id is None:
+                        continue
+
+                    amount_value = item.get('Amount')
+                    try:
+                        amount_value = int(amount_value) if amount_value is not None else 0
+                    except (TypeError, ValueError):
+                        amount_value = 0
+
+                    payload = {
+                        'brand_id': brand_id,
+                        'brand_id_key': item.get('BrandIdKey'),
+                        'brand_name': item.get('BrandName') or item.get('BrandNickName') or '未知品牌',
+                        'brand_logo': item.get('BrandLogo'),
+                        'brand_intro': item.get('BrandIntro'),
+                        'note_count': item.get('NoteCount') or 0,
+                        'active_count': item.get('ActiveCount') or 0,
+                        'amount_desc': item.get('AmountDesc'),
+                        'amount': amount_value,
+                    }
+
+                    record = existing_map.get(brand_id)
+                    if record:
+                        for field, value in payload.items():
+                            setattr(record, field, value)
+                        updated += 1
+                    else:
+                        session.add(QgBrandInfo(**payload))
+                        inserted += 1
+
+                processed_entries.append(entry)
+
+            if inserted or updated:
+                session.commit()
+                logger.info(
+                    f"机构 {org_name} 品牌数据写入数据库完成: 新增 {inserted} 条, 更新 {updated} 条"
+                )
+            else:
+                logger.info(f"机构 {org_name} 品牌数据无更新,跳过提交")
+
+            for entry in processed_entries:
+                entry['processed'] = True
+
+            self.api_data['GetMcnBrandList'] = [entry for entry in brand_entries if not entry.get('processed')]
+            return inserted > 0 or updated > 0
+        except SQLAlchemyError as db_err:
+            session.rollback()
+            logger.error(f"机构 {org_name} 品牌数据入库失败: {db_err}")
+            return False
+        except Exception as e:
+            session.rollback()
+            logger.error(f"机构 {org_name} 品牌数据处理异常: {str(e)}")
             return False
 
     def load_cookies(self):
@@ -1271,6 +1358,8 @@ class QianguaMcnRankSpider:
                     if brand_count == 0:
                         logger.warning(f"{year_month} 没有加载到品牌数据")
                         continue
+
+                    self.save_brand_data_to_db(org_name)
 
                     # 循环点击每个品牌
                     actual_brand_count = min(brand_count, self.max_brand_records)

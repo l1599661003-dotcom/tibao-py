@@ -56,11 +56,27 @@ class QianguaMcnRankSpider:
             self.max_note_records = config.getint('SETTINGS', 'max_note_records')
             self.scroll_delay_min = config.getint('SETTINGS', 'scroll_delay_min')
             self.scroll_delay_max = config.getint('SETTINGS', 'scroll_delay_max')
+            self.click_delay_min = config.getfloat('SETTINGS', 'click_delay_min', fallback=0.8)
+            self.click_delay_max = config.getfloat('SETTINGS', 'click_delay_max', fallback=1.8)
 
             logger.info(f"配置加载成功: 机构数量={len(self.organizations)}, 查询月份={self.query_months}")
         except Exception as e:
             logger.error(f"加载配置文件失败: {str(e)}")
             raise
+
+    def human_delay(self, min_sec=None, max_sec=None):
+        """模拟人工延迟,避免频繁操作"""
+        try:
+            min_delay = self.click_delay_min if min_sec is None else min_sec
+            max_delay = self.click_delay_max if max_sec is None else max_sec
+            if max_delay < min_delay:
+                min_delay, max_delay = max_delay, min_delay
+            delay = random.uniform(min_delay, max_delay)
+            logger.debug(f"模拟人工延时 {delay:.2f} 秒")
+            time.sleep(delay)
+        except Exception as e:
+            logger.debug(f"模拟延时失败: {e}, 使用默认1秒")
+            time.sleep(1)
 
     """初始化浏览器"""
 
@@ -109,7 +125,7 @@ class QianguaMcnRankSpider:
 
             if confirm_button.is_visible(timeout=1000):
                 confirm_button.click()
-            time.sleep(1)
+                self.human_delay()
         except Exception as e:
             logger.error(f"关闭弹出框时出错: {str(e)}")
 
@@ -140,28 +156,29 @@ class QianguaMcnRankSpider:
         try:
             logger.info("开始登录...")
             self.page.click("text=登录/注册")
-            time.sleep(3)
+            self.human_delay(1.5, 2.5)
 
             self.page.click("text=手机登录")
-            time.sleep(3)
+            self.human_delay(1.5, 2.5)
 
             # 输入账号密码
             self.page.fill("input[placeholder='请输入手机号']", '13151572333')
-            time.sleep(2)
+            self.human_delay(1.0, 1.8)
             self.page.fill("input[placeholder='请输入登录密码']", '12345678abc')
-            time.sleep(2)
+            self.human_delay(1.0, 1.8)
 
             # 勾选协议
             self.page.click('.el-checkbox__inner')
-            time.sleep(1)
+            self.human_delay(0.8, 1.4)
 
             # 点击登录按钮
             self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
+            self.human_delay(1.0, 2.0)
 
             # 等待滑块出现并提示用户
             logger.info("已点击登录按钮,等待滑块验证...")
             logger.info("请手动完成滑块验证并点击登录!")
-            time.sleep(3)
+            self.human_delay(1.5, 2.5)
 
             # 等待用户手动完成滑块验证和登录,最多等待60秒
             logger.info("等待用户手动完成滑块验证和登录(最多等待60秒)...")
@@ -329,7 +346,7 @@ class QianguaMcnRankSpider:
 
             if clicked:
                 logger.info("成功点击商业收入榜")
-                time.sleep(3)
+                self.human_delay(1.5, 2.5)
                 self.page.wait_for_load_state('networkidle', timeout=10000)
                 return True
             else:
@@ -353,19 +370,19 @@ class QianguaMcnRankSpider:
 
             # 清空输入框
             search_input.fill('')
-            time.sleep(1)
+            self.human_delay(0.6, 1.2)
 
             # 输入机构名称
             search_input.fill(org_name)
-            time.sleep(2)
+            self.human_delay(1.0, 1.8)
 
             # 按下回车键
             search_input.press('Enter')
-            time.sleep(3)
+            self.human_delay(1.5, 2.5)
 
             # 等待API响应
             self.page.wait_for_load_state('networkidle', timeout=10000)
-            time.sleep(2)
+            self.human_delay(1.0, 1.8)
 
             logger.info(f"搜索机构 {org_name} 完成")
             return True
@@ -396,7 +413,7 @@ class QianguaMcnRankSpider:
 
             if clicked:
                 logger.info(f"成功点击第 {index + 1} 个机构")
-                time.sleep(3)
+                self.human_delay(1.5, 2.5)
                 return True
             else:
                 logger.warning(f"未找到第 {index + 1} 个机构")
@@ -429,7 +446,7 @@ class QianguaMcnRankSpider:
 
             if clicked:
                 logger.info("成功点击合作品牌")
-                time.sleep(3)
+                self.human_delay(1.5, 2.5)
                 self.page.wait_for_load_state('networkidle', timeout=10000)
                 return True
             else:
@@ -531,7 +548,7 @@ class QianguaMcnRankSpider:
             # 使用page.mouse.click点击指定坐标
             self.page.mouse.click(click_x, click_y)
             logger.info(f"已点击日期选择器坐标")
-            time.sleep(2)
+            self.human_delay(1.0, 2.0)
             logger.info("成功打开日期选择器")
 
             # 检查左右两个面板是否包含目标月份,如果没有则切换
@@ -589,7 +606,7 @@ class QianguaMcnRankSpider:
                         logger.info("点击左侧箭头切换到上一个月")
                         self.page.click('.el-picker-panel__content.el-date-range-picker__content.is-left .el-date-range-picker__header .el-picker-panel__icon-btn.el-icon-arrow-left')
 
-                    time.sleep(1)
+                    self.human_delay(0.8, 1.4)
                     attempt += 1
                 else:
                     logger.error("无法解析当前月份")
@@ -698,7 +715,7 @@ class QianguaMcnRankSpider:
                 return False
 
             logger.info("成功点击第一天")
-            time.sleep(1)
+            self.human_delay(0.8, 1.4)
 
             # 点击最后一天
             clicked_last = self.page.evaluate(f'''
@@ -726,7 +743,7 @@ class QianguaMcnRankSpider:
                 return False
 
             logger.info("成功点击最后一天")
-            time.sleep(2)
+            self.human_delay(1.0, 2.0)
 
             logger.info(f"{year}年{month}月日期范围选择完成")
             return True
@@ -786,7 +803,7 @@ class QianguaMcnRankSpider:
 
             if clicked:
                 logger.info("成功点击预估合作费用排序")
-                time.sleep(2)
+                self.human_delay(1.0, 2.0)
                 
                 # 等待GetMcnBrandList接口响应
                 logger.info("等待GetMcnBrandList接口响应...")
@@ -967,7 +984,7 @@ class QianguaMcnRankSpider:
                 return False
 
             logger.info(f"成功点击第 {index + 1} 个品牌的查看链接")
-            time.sleep(3)
+            self.human_delay(1.5, 2.5)
 
             # 点击投放报价
             logger.info("点击投放报价...")
@@ -981,15 +998,16 @@ class QianguaMcnRankSpider:
             try:
                 price_button.wait_for(state="visible", timeout=5000)
                 price_button.click()
+                self.human_delay(1.0, 2.0)
             except Exception:
                 logger.warning("未找到投放报价按钮")
                 # 按ESC键关闭弹窗
                 self.page.keyboard.press('Escape')
-                time.sleep(1)
+                self.human_delay(0.8, 1.4)
                 return False
 
             logger.info("成功点击投放报价")
-            time.sleep(3)
+            self.human_delay(1.5, 2.5)
             self.page.wait_for_load_state('networkidle', timeout=10000)
 
             # 滚动一次加载更多数据
@@ -1024,12 +1042,12 @@ class QianguaMcnRankSpider:
                     ''')
             except Exception as e:
                 logger.warning(f"滚动投放报价数据时出错: {e}")
-            time.sleep(3)
+            self.human_delay(1.0, 2.0)
 
             # 按一次ESC键返回品牌列表
             logger.info("按ESC键返回品牌列表...")
             self.page.keyboard.press('Escape')
-            time.sleep(1)
+            self.human_delay(0.8, 1.4)
 
             return True
         except Exception as e:

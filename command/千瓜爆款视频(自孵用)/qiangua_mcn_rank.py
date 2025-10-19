@@ -949,10 +949,10 @@ class QianguaMcnRankSpider:
                             const divs = listRow.querySelectorAll(':scope > div');
                             if (divs.length >= 2) {{
                                 const secondDiv = divs[1];
-                                const viewLink = secondDiv.querySelector('.col-cell div a.text-link.c-split-line');
+                                const viewLink = secondDiv.querySelector(':scope > div > div > a');
                                 if (viewLink) {{
                                     viewLink.click();
-                                    console.log('点击了查看链接:', viewLink.textContent);
+                                    console.log('����˲鿴����:', viewLink.textContent);
                                     return true;
                                 }}
                             }}

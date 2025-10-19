@@ -971,20 +971,17 @@ class QianguaMcnRankSpider:
 
             # 点击投放报价
             logger.info("点击投放报价...")
-            clicked_price = self.page.evaluate('''
-                () => {
-                    const elements = Array.from(document.querySelectorAll('span'));
-                    for (const element of elements) {
-                        if (element.textContent.trim() === '投放报价') {
-                            element.click();
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-            ''')
-
-            if not clicked_price:
+            price_selector = (
+                ".el-dialog__body "
+                ".index-note-modal.relative-note-list__wrap "
+                ".list-con.scroll-list.qg-scrollo-list.scroll-mode "
+                ".affix-wrapper .c-affix .list-hd > div:nth-child(4) .sort-title"
+            )
+            price_button = self.page.locator(price_selector)
+            try:
+                price_button.wait_for(state="visible", timeout=5000)
+                price_button.click()
+            except Exception:
                 logger.warning("未找到投放报价按钮")
                 # 按ESC键关闭弹窗
                 self.page.keyboard.press('Escape')
@@ -997,14 +994,36 @@ class QianguaMcnRankSpider:
 
             # 滚动一次加载更多数据
             logger.info("滚动加载投放报价数据...")
-            self.page.evaluate('''
-                () => {
-                    const scrollContainer = document.querySelector('.list-bd.page-component__scroll');
-                    if (scrollContainer) {
-                        scrollContainer.scrollTop = scrollContainer.scrollHeight;
-                    }
-                }
-            ''')
+            note_list_selector = (
+                ".el-dialog__body "
+                ".index-note-modal.relative-note-list__wrap "
+                ".list-con.scroll-list.qg-scrollo-list.scroll-mode "
+                ".list-bd.page-component__scroll"
+            )
+            note_container = self.page.locator(note_list_selector)
+            try:
+                note_container.wait_for(state="visible", timeout=5000)
+                bounding_box = note_container.bounding_box()
+                if bounding_box:
+                    x = bounding_box["x"] + bounding_box["width"] / 2
+                    y = bounding_box["y"] + 10
+                    self.page.mouse.move(x, y)
+                    self.page.wait_for_timeout(500)
+                    self.page.mouse.wheel(0, 800)
+                else:
+                    logger.warning("未获取到投放报价列表 bounding box，改用 evaluate 滚动")
+                    self.page.evaluate('''
+                        () => {
+                            const container = document.querySelector(
+                                '.index-note-modal.relative-note-list__wrap .list-con.scroll-list.qg-scrollo-list.scroll-mode .list-bd.page-component__scroll'
+                            );
+                            if (container) {
+                                container.scrollTop = container.scrollHeight;
+                            }
+                        }
+                    ''')
+            except Exception as e:
+                logger.warning(f"滚动投放报价数据时出错: {e}")
             time.sleep(3)
 
             # 按一次ESC键返回品牌列表

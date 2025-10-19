@@ -6,11 +6,16 @@ import signal
 import sys
 import configparser
 import calendar
+from decimal import Decimal
 
 import schedule
 from loguru import logger
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 import random
+from sqlalchemy.exc import SQLAlchemyError
+
+from core.localhost_fp_project import session
+from models.models import QgBloggerRank
 
 """
     获取千瓜MCN商业收入榜数据
@@ -246,14 +251,37 @@ class QianguaMcnRankSpider:
                                 'processed': False
                             })
 
-                            # 对于GetMcnBrandList接口，只打印ItemList长度
                             if api_name == 'GetMcnBrandList':
                                 item_list = response_data.get('Data', {}).get('ItemList', [])
                                 logger.info(f"GetMcnBrandList接口返回 {len(item_list)} 条品牌数据")
-                            else:
-                                # 其他接口打印完整数据
-                                logger.info(f"{api_name} 接口数据:")
+                            if item_list:
+                                max_preview = min(5, len(item_list))
+                                for brand in item_list[:max_preview]:
+                                    brand_name = (
+                                        brand.get('BrandName')
+                                        or brand.get('BrandNickName')
+                                        or brand.get('Name')
+                                        or '未知品牌'
+                                    )
+                                    estimate_cost = (
+                                        brand.get('EstimateCooperationFee')
+                                        or brand.get('EstimateCooperationCost')
+                                        or brand.get('CooperationFee')
+                                        or brand.get('CooperationCost')
+                                    )
+                                    logger.info(
+                                        f"品牌信息: 名称={brand_name}, 预估费用={estimate_cost}, "
+                                        f"品牌ID={brand.get('BrandId') or brand.get('Id')}"
+                                    )
+                                if len(item_list) > max_preview:
+                                    logger.info(f"品牌列表预览 {max_preview} 条，共 {len(item_list)} 条")
+                                logger.info("GetMcnBrandList接口完整数据:")
                                 logger.info(json.dumps(response_data, ensure_ascii=False, indent=2))
+                            elif api_name == 'GetMcnRankData':
+                                item_list = response_data.get('Data', {}).get('ItemList', [])
+                                logger.info(f"捕获 {len(item_list)} 条MCN排行数据")
+                            else:
+                                logger.info(f"{api_name} 接口数据")
 
                         except Exception as e:
                             logger.error(f"解析{api_name}接口响应数据时出错: {str(e)}")
@@ -271,6 +299,115 @@ class QianguaMcnRankSpider:
             logger.info("Cookies已保存到文件")
         except Exception as e:
             logger.error(f"保存cookies时出错: {str(e)}")
+
+    def save_rank_data_to_db(self, org_name, min_timestamp=None):
+        """处理MCN排行数据写入数据库"""
+        try:
+            rank_entries = self.api_data.get('GetMcnRankData', [])
+            if not rank_entries:
+                logger.warning(f"未捕获机构 {org_name} 的MCN排行数据,跳过入库")
+                return False
+
+            inserted = 0
+            updated = 0
+
+            processed_entries = []
+            min_ts = 0
+            if min_timestamp is not None:
+                try:
+                    min_ts = int(min_timestamp)
+                except (TypeError, ValueError):
+                    min_ts = 0
+
+            for entry in rank_entries:
+                if entry.get('processed'):
+                    continue
+
+                try:
+                    entry_ts = int(entry.get('timestamp'))
+                except (TypeError, ValueError):
+                    entry_ts = 0
+
+                if min_ts and entry_ts and entry_ts < min_ts:
+                    continue
+
+                response_data = entry.get('data') or {}
+                item_list = (response_data.get('Data') or {}).get('ItemList') or []
+                if not item_list:
+                    processed_entries.append(entry)
+                    continue
+
+
+                for item in item_list:
+
+                    tags_text = item.get('BloggerTags')
+                    if not tags_text:
+                        tag_list = item.get('BloggerTagList') or []
+                        tags_text = ','.join(
+                            tag.get('Name') for tag in tag_list if tag.get('Name')
+                        )
+
+                    increase_value = item.get('IncreaseRankValue')
+                    try:
+                        increase_value_decimal = (
+                            Decimal(str(increase_value)).quantize(Decimal('0.00'))
+                            if increase_value is not None
+                            else Decimal('0.00')
+                        )
+                    except Exception:
+                        increase_value_decimal = Decimal('0.00')
+
+                    payload = {
+                        'nickname': item.get('NickName') or '',
+                        'rank_number': item.get('RankNumber') or 0,
+                        'change_number': item.get('ChangeNumber') or 0,
+                        'rank_value': item.get('RankValue') or 0,
+                        'rank_value_attach': item.get('RankValueAttach') or 0,
+                        'increase_rank_value': increase_value_decimal,
+                        'mcn_user_id': item.get('McnUserId'),
+                        'small_avatar': item.get('SmallAvatar'),
+                        'blogger_tags': tags_text,
+                        'blogger_count': item.get('BloggerCount') or 0,
+                        'note_count': item.get('NoteCount') or 0,
+                        'like_collect': item.get('LikeCollect') or 0,
+                        'fans_count': item.get('FansCount') or 0,
+                        'brand_count': item.get('BrandCount') or 0,
+                        'institute_name': item.get('InstituteName') or org_name,
+                        'is_certification': 1 if item.get('IsCertification') else 0,
+                        'current_user_is_favorite': 1 if item.get('CurrentUserIsFavorite') else 0,
+                    }
+
+                    record = session.query(QgBloggerRank).filter(QgBloggerRank.nickname == item.get('NickName')).first()
+
+                    if record:
+                        for field, value in payload.items():
+                            setattr(record, field, value)
+                        updated += 1
+                    else:
+                        session.add(QgBloggerRank(**payload))
+                        inserted += 1
+
+                processed_entries.append(entry)
+
+            if inserted or updated:
+                session.commit()
+                logger.info(
+                    f"机构 {org_name} 排行数据写入数据库完成: 新增 {inserted} 条, 更新 {updated} 条"
+                )
+            else:
+                logger.info(f"机构 {org_name} 排行数据无更新,跳过提交")
+
+            for entry in processed_entries:
+                entry['processed'] = True
+            return inserted > 0 or updated > 0
+        except SQLAlchemyError as db_err:
+            session.rollback()
+            logger.error(f"机构 {org_name} 排行数据入库失败: {db_err}")
+            return False
+        except Exception as e:
+            session.rollback()
+            logger.error(f"机构 {org_name} 排行数据处理异常: {str(e)}")
+            return False
 
     def load_cookies(self):
         """从文件加载cookies"""
@@ -361,30 +498,48 @@ class QianguaMcnRankSpider:
         try:
             logger.info(f"搜索机构: {org_name}")
 
-            # 清空之前的API数据
             if 'GetMcnRankData' in self.api_data:
                 self.api_data['GetMcnRankData'] = []
 
-            # 定位搜索框
             search_input = self.page.locator('.search-box.mr16 .el-autocomplete.s-input .el-input.el-input--medium.el-input-group.el-input-group--append.el-input--suffix input')
 
-            # 清空输入框
             search_input.fill('')
             self.human_delay(0.6, 1.2)
 
-            # 输入机构名称
             search_input.fill(org_name)
             self.human_delay(1.0, 1.8)
 
-            # 按下回车键
+            search_start_ts = int(time.time() * 1000)
             search_input.press('Enter')
             self.human_delay(1.5, 2.5)
 
-            # 等待API响应
+            new_data_received = False
+            try:
+                self.page.wait_for_event(
+                    'response',
+                    timeout=10000,
+                    predicate=lambda response: (
+                        'GetMcnRankData' in response.url
+                        and response.request.resource_type in ('xhr', 'fetch')
+                    )
+                )
+                new_data_received = True
+            except PlaywrightTimeoutError:
+                logger.warning(f"搜索机构 {org_name} 后未捕获新的GetMcnRankData响应")
+
             self.page.wait_for_load_state('networkidle', timeout=10000)
             self.human_delay(1.0, 1.8)
 
             logger.info(f"搜索机构 {org_name} 完成")
+
+            if not new_data_received:
+                wait_start = time.time()
+                while time.time() - wait_start < 3:
+                    if self.api_data.get('GetMcnRankData'):
+                        break
+                    time.sleep(0.2)
+
+            self.save_rank_data_to_db(org_name, min_timestamp=search_start_ts)
             return True
         except Exception as e:
             logger.error(f"搜索机构 {org_name} 时出错: {str(e)}")

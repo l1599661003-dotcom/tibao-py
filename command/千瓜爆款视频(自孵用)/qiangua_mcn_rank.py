@@ -254,12 +254,8 @@ class QianguaMcnRankSpider:
                             if api_name == 'GetMcnBrandList':
                                 item_list = response_data.get('Data', {}).get('ItemList', [])
                                 logger.info(f"GetMcnBrandList接口返回 {len(item_list)} 条品牌数据")
-
-                                for brand in item_list:
-                                    logger.info("品牌数据:")
-                                    logger.info(json.dumps(brand, ensure_ascii=False, indent=2))
-
-                                logger.info("GetMcnBrandList接口完整数据:")
+                            elif api_name == 'GetMcnBrandNoteList':
+                                logger.info("GetMcnBrandNoteList接口数据:")
                                 logger.info(json.dumps(response_data, ensure_ascii=False, indent=2))
                             elif api_name == 'GetMcnRankData':
                                 item_list = response_data.get('Data', {}).get('ItemList', [])

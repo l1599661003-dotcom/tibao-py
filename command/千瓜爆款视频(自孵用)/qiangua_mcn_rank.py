@@ -392,7 +392,7 @@ class QianguaMcnRankSpider:
             return False
 
 
-    def save_brand_data_to_db(self, org_name):
+    def save_brand_data_to_db(self, org_name, mcn_index, year_month):
         """处理品牌列表数据写入数据库"""
         try:
             brand_entries = self.api_data.get('GetMcnBrandList', [])
@@ -436,6 +436,8 @@ class QianguaMcnRankSpider:
                         amount_value = 0
 
                     payload = {
+                        'blogger_id': mcn_index,
+                        'month': year_month,
                         'brand_id': brand_id,
                         'brand_id_key': item.get('BrandIdKey'),
                         'brand_name': item.get('BrandName') or item.get('BrandNickName') or '未知品牌',
@@ -1493,7 +1495,7 @@ class QianguaMcnRankSpider:
                         logger.warning(f"{year_month} 没有加载到品牌数据")
                         continue
 
-                    self.save_brand_data_to_db(org_name)
+                    self.save_brand_data_to_db(org_name, mcn_index + 1, year_month)
 
                     # 循环点击每个品牌
                     actual_brand_count = min(brand_count, self.max_brand_records)

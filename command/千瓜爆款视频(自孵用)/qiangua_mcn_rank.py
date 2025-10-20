@@ -15,7 +15,7 @@ import random
 from sqlalchemy.exc import SQLAlchemyError
 
 from core.localhost_fp_project import session
-from models.models import QgBloggerRank, QgBrandInfo
+from models.models import QgBloggerRank, QgBrandInfo, QgNoteInfo
 
 """
     获取千瓜MCN商业收入榜数据
@@ -29,6 +29,7 @@ class QianguaMcnRankSpider:
         self.mcn_rank_url = "https://app.qian-gua.com/#/mcn/rank"
         self.is_logged_in = False
         self.api_data = {}
+        self.current_organization = None
         self.cookie_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cookies.json')
         self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mcn_rank_config.ini')
         self.load_config()
@@ -371,15 +372,15 @@ class QianguaMcnRankSpider:
             if inserted or updated:
                 session.commit()
                 logger.info(
-                    f"机构 {org_name} 排行数据写入数据库完成: 新增 {inserted} 条, 更新 {updated} 条"
+                    f"机构 {org_name or '未知机构'} 笔记数据写入数据库完成: 新增 {inserted} 条, 更新 {updated} 条"
                 )
             else:
-                logger.info(f"机构 {org_name} 排行数据无更新,跳过提交")
+                logger.info(f"机构 {org_name or '未知机构'} 笔记数据无更新,跳过提交")
 
             for entry in processed_entries:
                 entry['processed'] = True
 
-            self.api_data['GetMcnRankData'] = [entry for entry in rank_entries if not entry.get('processed')]
+            self.api_data['GetMcnBrandNoteList'] = [entry for entry in note_entries if not entry.get('processed')]
             return inserted > 0 or updated > 0
         except SQLAlchemyError as db_err:
             session.rollback()
@@ -477,6 +478,153 @@ class QianguaMcnRankSpider:
         except Exception as e:
             session.rollback()
             logger.error(f"机构 {org_name} 品牌数据处理异常: {str(e)}")
+            return False
+
+
+    def save_note_data_to_db(self, org_name=None):
+        """处理笔记列表数据写入数据库"""
+        try:
+            org_display = org_name or self.current_organization or '未知机构'
+
+            note_entries = self.api_data.get('GetMcnBrandNoteList', [])
+            if not note_entries:
+                wait_start = time.time()
+                while time.time() - wait_start < 3:
+                    note_entries = self.api_data.get('GetMcnBrandNoteList', [])
+                    if note_entries:
+                        break
+                    time.sleep(0.2)
+
+            if not note_entries:
+                logger.warning(f"未捕获机构 {org_display} 的笔记数据,跳过入库")
+                return False
+
+            inserted = 0
+            updated = 0
+            processed_entries = []
+
+            def parse_datetime(value):
+                if not value:
+                    return None
+                if isinstance(value, str):
+                    value = value.replace('Z', '+00:00')
+                    try:
+                        return datetime.fromisoformat(value)
+                    except ValueError:
+                        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S'):
+                            try:
+                                return datetime.strptime(value, fmt)
+                            except ValueError:
+                                continue
+                return None
+
+            def to_int(value):
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    return 0
+
+            for entry in note_entries:
+                if entry.get('processed'):
+                    continue
+
+                response_data = entry.get('data') or {}
+                item_list = (response_data.get('Data') or {}).get('ItemList') or []
+                if not item_list:
+                    processed_entries.append(entry)
+                    continue
+
+                note_ids = [item.get('NoteId') for item in item_list if item.get('NoteId') is not None]
+                existing_map = {}
+                if note_ids:
+                    existing_records = (
+                        session.query(QgNoteInfo)
+                        .filter(QgNoteInfo.note_id.in_(note_ids))
+                        .all()
+                    )
+                    existing_map = {record.note_id: record for record in existing_records}
+
+                for item in item_list:
+                    note_id = item.get('NoteId')
+                    if note_id is None:
+                        continue
+
+                    amount_value = to_int(item.get('Amount'))
+                    publish_time = parse_datetime(item.get('PublishTime'))
+                    update_time_raw = parse_datetime(item.get('UpdateTime'))
+
+                    pub_date = None
+                    pub_date_value = item.get('PubDate')
+                    if pub_date_value:
+                        try:
+                            pub_date = datetime.strptime(pub_date_value, '%Y-%m-%d').date()
+                        except ValueError:
+                            pub_date = None
+
+                    payload = {
+                        'note_id': note_id,
+                        'date_code': item.get('DateCode'),
+                        'note_id_key': item.get('NoteIdKey'),
+                        'unique_id': item.get('Id'),
+                        'user_id': item.get('UserId'),
+                        'title': item.get('Title'),
+                        'cover_image': item.get('CoverImage'),
+                        'blogger_id': item.get('BloggerId'),
+                        'blogger_id_key': item.get('BloggerIdKey'),
+                        'blogger_nickname': item.get('BloggerNickName'),
+                        'blogger_prop': item.get('BloggerProp'),
+                        'publish_time': publish_time,
+                        'note_type': item.get('NoteType'),
+                        'is_business': 1 if item.get('IsBusiness') else 0,
+                        'note_type_desc': item.get('NoteTypeDesc'),
+                        'props': to_int(item.get('Props')),
+                        'pub_date': pub_date,
+                        'update_time_raw': update_time_raw,
+                        'video_duration': item.get('VideoDuration'),
+                        'gender': to_int(item.get('Gender')) if item.get('Gender') is not None else None,
+                        'big_avatar': item.get('BigAvatar'),
+                        'small_avatar': item.get('SmallAvatar'),
+                        'tag_name': item.get('TagName'),
+                        'cooperate_binds_name': item.get('CooperateBindsName'),
+                        'view_count': to_int(item.get('ViewCount')),
+                        'active_count': to_int(item.get('ActiveCount')),
+                        'amount': amount_value,
+                        'ad_price_desc': item.get('AdPriceDesc'),
+                        'ad_price_update_status': to_int(item.get('AdPriceUpdateStatus')),
+                        'is_ad_note': 1 if item.get('IsAdNote') else 0,
+                    }
+
+                    record = existing_map.get(note_id)
+                    if record:
+                        for field, value in payload.items():
+                            setattr(record, field, value)
+                        updated += 1
+                    else:
+                        session.add(QgNoteInfo(**payload))
+                        inserted += 1
+
+                processed_entries.append(entry)
+
+            if inserted or updated:
+                session.commit()
+                logger.info(
+                    f"机构 {org_display} 笔记数据写入数据库完成: 新增 {inserted} 条, 更新 {updated} 条"
+                )
+            else:
+                logger.info(f"机构 {org_display} 笔记数据无更新,跳过提交")
+
+            for entry in processed_entries:
+                entry['processed'] = True
+
+            self.api_data['GetMcnBrandNoteList'] = [entry for entry in note_entries if not entry.get('processed')]
+            return inserted > 0 or updated > 0
+        except SQLAlchemyError as db_err:
+            session.rollback()
+            logger.error(f"机构 {org_display} 笔记数据入库失败: {db_err}")
+            return False
+        except Exception as e:
+            session.rollback()
+            logger.error(f"机构 {org_display} 笔记数据处理异常: {str(e)}")
             return False
 
     def load_cookies(self):
@@ -1271,6 +1419,7 @@ class QianguaMcnRankSpider:
 
             # 按一次ESC键返回品牌列表
             logger.info("按ESC键返回品牌列表...")
+            self.save_note_data_to_db(self.current_organization)
             self.page.keyboard.press('Escape')
             self.human_delay(0.8, 1.4)
 
@@ -1288,11 +1437,13 @@ class QianguaMcnRankSpider:
     def process_organization(self, org_name):
         """处理单个机构的数据"""
         try:
+            self.current_organization = org_name
             logger.info(f"开始处理机构: {org_name}")
 
             # 搜索机构
             if not self.search_organization(org_name):
                 logger.error(f"搜索机构 {org_name} 失败")
+                self.current_organization = None
                 return False
 
             # 获取机构列表数量(最多4条)
@@ -1364,9 +1515,11 @@ class QianguaMcnRankSpider:
                 time.sleep(2)
 
             logger.info(f"机构 {org_name} 处理完成")
+            self.current_organization = None
             return True
         except Exception as e:
             logger.error(f"处理机构 {org_name} 时出错: {str(e)}")
+            self.current_organization = None
             return False
 
     def scrape_mcn_rank_data(self):

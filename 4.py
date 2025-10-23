@@ -229,7 +229,7 @@ def fetch_mcn_detail_data(mcn_id, page):
 def get_unprocessed_mcns():
     """获取未处理的MCN列表"""
     try:
-        mcns = session.query(DouyinMcn).filter(DouyinMcn.status == 0).all()
+        mcns = session.query(DouyinMcn).filter(DouyinMcn.id <= 60).all()
         logger.info(f"获取到 {len(mcns)} 个未处理的MCN")
         return mcns
     except Exception as e:

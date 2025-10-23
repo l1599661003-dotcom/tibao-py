@@ -252,61 +252,107 @@ class PGYSpider:
                 return True
 
             logger.info("开始登录流程...")
+            # try:
+            #     # 访问首页
+            #     self.page.goto(self.base_url)
+            #     self.common.random_sleep()
+            #
+            #     # 等待并点击第一个登录按钮
+            #     logger.info("等待第一个登录按钮出现...")
+            #     first_login_button = self.page.wait_for_selector("text=账号登录", timeout=10000)
+            #     if not first_login_button:
+            #         logger.error("未找到第一个登录按钮")
+            #         return False
+            #     first_login_button.click()
+            #     self.common.random_sleep(1, 2)
+            #
+            #     # 等待并点击弹窗中的账号登录按钮
+            #     logger.info("等待弹窗中的账号登录按钮...")
+            #     second_login_button = self.page.wait_for_selector("text=账号登录 >> nth=1", timeout=10000)
+            #     if not second_login_button:
+            #         logger.error("未找到弹窗中的账号登录按钮")
+            #         return False
+            #     second_login_button.click()
+            #     self.common.random_sleep(1, 2)
+            #
+            #     # 等待邮箱输入框出现并输入邮箱
+            #     logger.info("正在输入账号密码...")
+            #     email_input = self.page.wait_for_selector("input.css-1dbyz17.css-xno39g.dyn", timeout=5000)
+            #     email_input.fill(self.config_email)
+            #     self.common.random_sleep(1, 2)  # 模拟人工输入间隔
+            #
+            #     # 等待5分钟，每10秒检查一次登录状态
+            #     max_wait_time = 300  # 5分钟 = 300秒
+            #     check_interval = 10  # 每10秒检查一次
+            #     elapsed_time = 0
+            #
+            #     while elapsed_time < max_wait_time:
+            #         try:
+            #             # 检查是否存在用户头像元素（登录成功的标志）
+            #             user_avatar = self.page.locator(".home_head_user_info").first
+            #             if user_avatar and user_avatar.is_visible():
+            #                 logger.info("检测到登录成功！")
+            #                 self.is_logged_in = True
+            #
+            #                 # 登录成功后保存Cookie
+            #                 self._save_cookies()
+            #
+            #                 return True
+            #
+            #             time.sleep(check_interval)
+            #             elapsed_time += check_interval
+            #
+            #         except Exception as e:
+            #             logger.warning(f"检查登录状态时出错: {str(e)}")
+            #             time.sleep(check_interval)
+            #             elapsed_time += check_interval
+            #
+            #     # 5分钟超时，仍未登录成功
+            #     logger.error("等待登录超时（5分钟），程序退出")
+            #     return False
+            #
+            # except Exception as e:
+            #     logger.error(f"等待登录过程中出现异常: {str(e)}")
+            #     return False
+            logger.info("开始等待用户手动登录,请在5分钟内完成登录操作，程序将自动检测登录状态")
+
             try:
                 # 访问首页
                 self.page.goto(self.base_url)
-                self.common.random_sleep()
+                self.common.random_sleep(2, 3)
 
-                # 等待并点击第一个登录按钮
-                logger.info("等待第一个登录按钮出现...")
-                first_login_button = self.page.wait_for_selector("text=账号登录", timeout=10000)
-                if not first_login_button:
-                    logger.error("未找到第一个登录按钮")
-                    return False
-                first_login_button.click()
-                self.common.random_sleep(1, 2)
+                # 等待5分钟，每10秒检查一次登录状态
+                max_wait_time = 300  # 5分钟 = 300秒
+                check_interval = 10  # 每10秒检查一次
+                elapsed_time = 0
 
-                # 等待并点击弹窗中的账号登录按钮
-                logger.info("等待弹窗中的账号登录按钮...")
-                second_login_button = self.page.wait_for_selector("text=账号登录 >> nth=1", timeout=10000)
-                if not second_login_button:
-                    logger.error("未找到弹窗中的账号登录按钮")
-                    return False
-                second_login_button.click()
-                self.common.random_sleep(1, 2)
+                while elapsed_time < max_wait_time:
+                    try:
+                        # 检查是否存在用户头像元素（登录成功的标志）
+                        user_avatar = self.page.locator(".home_head_user_info").first
+                        if user_avatar and user_avatar.is_visible():
+                            logger.info("检测到登录成功！")
+                            self.is_logged_in = True
 
-                # 等待邮箱输入框出现并输入邮箱
-                logger.info("正在输入账号密码...")
-                email_input = self.page.wait_for_selector("input.css-1dbyz17.css-xno39g.dyn", timeout=5000)
-                email_input.fill(self.config['PGY_LOGIN_CONFIG']['email'])
-                self.common.random_sleep(1, 2)  # 模拟人工输入间隔
+                            # 登录成功后保存Cookie
+                            self._save_cookies()
 
-                # 等待密码输入框出现并输入密码
-                password_input = self.page.wait_for_selector("input.css-1dbyz17.css-cct1ew.dyn", timeout=5000)
-                password_input.fill(self.config['PGY_LOGIN_CONFIG']['password'])
-                self.common.random_sleep(1, 2)  # 模拟人工输入间隔
+                            return True
 
-                # 点击登录按钮
-                submit_button = self.page.wait_for_selector("button.css-r7neow.css-wp7z9d.dyn.beer-login-btn",
-                                                            timeout=5000)
-                submit_button.click()
+                        time.sleep(check_interval)
+                        elapsed_time += check_interval
 
-                logger.info("等待登录成功...")
-                # 等待个人头像出现，表示登录成功
-                avatar = self.page.wait_for_selector(".home_head_user_info", timeout=60000)
-                if avatar:
-                    logger.info("登录成功！")
-                    self.is_logged_in = True
+                    except Exception as e:
+                        logger.warning(f"检查登录状态时出错: {str(e)}")
+                        time.sleep(check_interval)
+                        elapsed_time += check_interval
 
-                    # 登录成功后保存Cookie
-                    self._save_cookies()
+                # 5分钟超时，仍未登录成功
+                logger.error("等待登录超时（5分钟），程序退出")
+                return False
 
-                    return True
-                else:
-                    logger.error("登录失败，未检测到登录成功状态")
-                    return False
-            except PlaywrightTimeoutError as e:
-                logger.error("登录超时，请重试")
+            except Exception as e:
+                logger.error(f"等待登录过程中出现异常: {str(e)}")
                 return False
 
         except Exception as e:
@@ -314,7 +360,6 @@ class PGYSpider:
             return False
 
     def scrape_user_notes(self):
-        time.sleep(30000)
         """抓取博主信息 - 重构版本，匹配PHP逻辑"""
         logger.info("开始无限循环查询新签约博主数据...")
 

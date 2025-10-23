@@ -5,7 +5,12 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 DATABASE_URL = 'mysql+pymysql://root:root@localhost:3306/tibao_2'
 
 # 创建数据库引擎
-engine = create_engine(DATABASE_URL, isolation_level="READ UNCOMMITTED")
+engine = create_engine(
+    DATABASE_URL,
+    isolation_level="READ UNCOMMITTED",
+    pool_pre_ping=True,
+    pool_recycle=1800,
+)
 
 # 创建会话工厂
 Session = sessionmaker(bind=engine)

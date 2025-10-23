@@ -111,7 +111,7 @@ class DouYinSpider:
                         self.logger.info("✅ 成功获取到API响应数据")
                     elif len(self.api_data) > 0:
                         self.logger.info(f"✅ 检测到 {len(self.api_data)} 个API响应")
-                else:
+                    else:
                         self.logger.warning("⚠️ 未检测到API响应数据")
 
                     # 确保分页处理已完成
@@ -120,7 +120,7 @@ class DouYinSpider:
 
                     return 1  # 返回1表示处理成功
 
-        except Exception as e:
+                except Exception as e:
                     self.logger.warning(f"等待API数据时出错: {str(e)}")
                     return 1  # 即使出错也继续执行
 
@@ -257,18 +257,18 @@ class DouYinSpider:
 
                 for selector in input_selectors:
                     try:
-                    elements = self.page.locator(selector)
-                    count = elements.count()
-                    if count > 0:
-                            self.logger.info(f"找到 {count} 个输入框 (选择器: {selector})")
-                            inputs = []
-                            for i in range(count):
-                                inputs.append(elements.nth(i))
-                            if len(inputs) >= 2:
-                                break
-                except Exception as e:
+                        elements = self.page.locator(selector)
+                        count = elements.count()
+                        if count > 0:
+                                self.logger.info(f"找到 {count} 个输入框 (选择器: {selector})")
+                                inputs = []
+                                for i in range(count):
+                                    inputs.append(elements.nth(i))
+                                if len(inputs) >= 2:
+                                    break
+                    except Exception as e:
                         self.logger.debug(f"查找输入框 {selector} 失败: {str(e)}")
-                    continue
+                        continue
 
             if len(inputs) < 2:
                 self.logger.error(f"需要至少2个输入框，但只找到 {len(inputs)} 个")
@@ -283,7 +283,7 @@ class DouYinSpider:
                 self.common.random_sleep(0.5, 1)
             except Exception as e:
                 self.logger.error(f"输入最小值时出错: {str(e)}")
-            return False
+                return False
 
             # 清空并输入最大值到第二个输入框
             try:
@@ -292,9 +292,9 @@ class DouYinSpider:
                 second_input.fill(str(max_value))
                 self.logger.info(f"已输入最大值: {max_value}")
                 self.common.random_sleep(0.5, 1)
-        except Exception as e:
+            except Exception as e:
                 self.logger.error(f"输入最大值时出错: {str(e)}")
-            return False
+                return False
 
             # 点击第一个确定按钮 - 使用更精确的选择器
             try:
@@ -311,7 +311,7 @@ class DouYinSpider:
                         self.logger.info("成功点击通用确定按钮")
                     else:
                         self.logger.warning("未找到第一个确定按钮")
-        except Exception as e:
+            except Exception as e:
                 self.logger.warning(f"点击第一个确定按钮失败: {str(e)}")
 
             self.common.random_sleep(2, 3)
@@ -357,7 +357,7 @@ class DouYinSpider:
 
         except Exception as e:
             self.logger.error(f"设置价格区间时出错: {str(e)}")
-                return False
+            return False
 
     def _process_all_pages(self):
         """处理所有页面数据，自动翻页直到disabled
@@ -400,7 +400,7 @@ class DouYinSpider:
                 self.common.random_sleep(2, 3)
 
             self.logger.info(f"所有页面处理完成，共处理 {total_processed_pages} 页")
-                    return True
+            return True
 
         except Exception as e:
             self.logger.error(f"处理所有页面时出错: {str(e)}")
@@ -477,7 +477,7 @@ class DouYinSpider:
                 f"第 {page_num} 页数据处理完成: 总计新增 {total_authors_added} 条，跳过 {total_authors_skipped} 条重复数据")
             return total_authors_added
 
-            except Exception as e:
+        except Exception as e:
             self.logger.error(f"处理第 {page_num} 页数据时出错: {str(e)}")
             session.rollback()  # 出错时回滚事务
             return 0
@@ -509,12 +509,12 @@ class DouYinSpider:
             # 等待网络空闲
             try:
                 self.page.wait_for_load_state('networkidle', timeout=15000)
-                except Exception as e:
+            except Exception as e:
                 self.logger.warning(f"等待网络空闲时出错: {str(e)}")
 
             return True
 
-            except Exception as e:
+        except Exception as e:
             self.logger.error(f"点击下一页时出错: {str(e)}")
             return False
 
@@ -598,14 +598,14 @@ class DouYinSpider:
                 if user_len > 0 or self.page.locator(".text-avatar").is_visible(timeout=5000):
                     self.is_logged_in = True
                     logger.info("Cookie有效，已自动登录")
-                    else:
+                else:
                     logger.info("Cookie已失效，需要重新登录")
                     self.is_logged_in = False
-                except Exception as e:
+            except Exception as e:
                 logger.warning(f"Cookie验证失败: {str(e)}")
                 logger.info("将进行重新登录")
                 self.is_logged_in = False
-            else:
+        else:
             self.page = self.context.new_page()
             self.is_logged_in = False
 
@@ -650,7 +650,7 @@ class DouYinSpider:
                         time.sleep(check_interval)
                         elapsed_time += check_interval
 
-            except Exception as e:
+                    except Exception as e:
                         logger.warning(f"检查登录状态时出错: {str(e)}")
                         time.sleep(check_interval)
                         elapsed_time += check_interval
@@ -659,7 +659,7 @@ class DouYinSpider:
                 logger.error("等待登录超时（5分钟），程序退出")
                 return False
 
-        except Exception as e:
+            except Exception as e:
                 logger.error(f"等待登录过程中出现异常: {str(e)}")
                 return False
 
@@ -722,17 +722,17 @@ class DouYinSpider:
 
             if is_target_api and (response.request.resource_type == 'fetch' or response.request.resource_type == 'xhr'):
                 logger.info(f"捕获到目标API: {url}")
-                    try:
-                        # 检查响应状态
-                        if response.status != 200:
+                try:
+                    # 检查响应状态
+                    if response.status != 200:
                         logger.warning(f"API响应状态异常: {response.status}, URL: {url}")
-                            return
+                        return
 
-                        try:
+                    try:
                         # 检查浏览器是否仍然有效
                         if not hasattr(self, 'page') or not self.page or self.page.is_closed():
                             logger.warning(f"页面已关闭，跳过API数据处理: {url}")
-                                return
+                            return
 
                         data = response.json()
 
@@ -764,25 +764,26 @@ class DouYinSpider:
                                     # 立即处理数据并保存到数据库
                                     self._process_api_data_immediately(url, data)
 
-                        # 标记API响应已处理
-                        self.api_response_processed = True
-                                else:
-                                    logger.warning(
-                                        f"API数据结构异常: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+                                # 标记API响应已处理
+                                self.api_response_processed = True
                             else:
-                                logger.info(f"捕获到API数据，但尚未点击按钮，暂不处理: {url}")
+                                logger.warning(
+                                    f"API数据结构异常: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+                        else:
+                            logger.info(f"捕获到API数据，但尚未点击按钮，暂不处理: {url}")
 
                     except ValueError:
                         logger.warning(f"无效的JSON响应: {url}")
                     except Exception as json_error:
                         logger.warning(f"JSON解析失败: {str(json_error)}, URL: {url}")
 
-                    except Exception as e:
+                except Exception as e:
                     # 如果是浏览器关闭错误，不记录为错误
                     if "Target page, context or browser has been closed" in str(e):
                         logger.info(f"浏览器已关闭，跳过API数据处理: {url}")
                     else:
                         logger.error(f"处理API数据时出错: {str(e)}, URL: {url}")
+
         except Exception as e:
             logger.error(f"处理API响应时出错: {str(e)}")
 
@@ -832,7 +833,7 @@ class DouYinSpider:
                             DouyinSearchList.star_id == author_data['star_id']).first()
                         if existing_data:
                             authors_skipped += 1
-                    continue
+                            continue
 
                         # 创建新记录 - 将字典类型转换为JSON字符串
                         detail = DouyinSearchList(
@@ -881,7 +882,7 @@ class DouYinSpider:
                         authors_added += 1
 
                     # 提交数据库事务
-            session.commit()
+                    session.commit()
                     logger.info(f"立即处理API数据完成: 新增 {authors_added} 条，跳过 {authors_skipped} 条重复数据")
                 else:
                     logger.warning(f"API数据结构异常，无法处理: {url}")
@@ -914,18 +915,18 @@ class DouYinSpider:
         """
         try:
             if os.path.exists(self.cookie_file):
-            with open(self.cookie_file, 'r', encoding='utf-8') as f:
-                cookies = json.load(f)
+                with open(self.cookie_file, 'r', encoding='utf-8') as f:
+                    cookies = json.load(f)
 
                 if cookies:
-            self.context.add_cookies(cookies)
+                    self.context.add_cookies(cookies)
                     logger.info(f"已成功加载 {len(cookies)} 个Cookie")
-            return True
+                    return True
                 else:
                     logger.warning("Cookie文件为空")
-            return False
+                    return False
             else:
-            return False
+                return False
         except Exception as e:
             logger.error(f"加载Cookie时出错: {str(e)}")
             # 如果cookie文件损坏，删除它
@@ -935,7 +936,7 @@ class DouYinSpider:
                     logger.info("已删除损坏的Cookie文件")
             except:
                 pass
-            return False
+                return False
 
 
 def main():
@@ -952,7 +953,7 @@ def main():
         login_success = spider.login()
         if not login_success:
             logger.error("登录失败，程序退出")
-                return False
+            return False
 
         # 4. 处理Excel数据（搜索抖音用户）
         result = spider.scrape_user_notes("搜索达人")
@@ -976,14 +977,14 @@ def main():
         logger.info("抖音搜索程序执行完成")
         return True
 
-        except KeyboardInterrupt:
+    except KeyboardInterrupt:
         logger.warning("用户手动中断程序")
-            return False
-        except Exception as e:
+        return False
+    except Exception as e:
         logger.error(f"程序运行出错: {str(e)}")
-            logger.error(f"错误详情: {traceback.format_exc()}")
-            return False
-        finally:
+        logger.error(f"错误详情: {traceback.format_exc()}")
+        return False
+    finally:
         # 确保资源被正确释放
         if spider:
             try:

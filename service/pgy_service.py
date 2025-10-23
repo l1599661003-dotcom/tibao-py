@@ -7,7 +7,7 @@ import requests
 
 headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    "cookie": 'a1=19918aa122a4aiicm59fhz57ovnd0oo438xblh8ws50000173718; webId=0b1228fa555218955d9ec8a20123a6c3; customerClientId=439504990393203; customer-sso-sid=68c517558704504784846848wsofotkwhgn0vbp2; x-user-id-pgy.xiaohongshu.com=65da95910000000005031083; solar.beaker.session.id=AT-68c517558717733283266560dy4v9ut98dcwii4c; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c517558717733283266560dy4v9ut98dcwii4c; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c517558717733283266560dy4v9ut98dcwii4c; xsecappid=ratlin; acw_tc=0a4252f017600009909004840e46747ff63866baad61713bb5a490a6c3ad8e; loadts=1760000996710',
+    "cookie": 'a1=19918aa122a4aiicm59fhz57ovnd0oo438xblh8ws50000173718; webId=0b1228fa555218955d9ec8a20123a6c3; customerClientId=439504990393203; x-user-id-pgy.xiaohongshu.com=65da95910000000005031083; solar.beaker.session.id=AT-68c517560298324197867522ozlmbsv8mfcuioms; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c517560298324197867522ozlmbsv8mfcuioms; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c517560298324197867522ozlmbsv8mfcuioms; xsecappid=ratlin; acw_tc=0a00076417606091261846932edf90693d62a7e997ed72617c6053ee4eb67d; loadts=1760609872788',
     'Accept': 'application/json, text/javascript, */*; q=0.01',
     'Accept-Encoding': 'gzip, deflate, br',
 }

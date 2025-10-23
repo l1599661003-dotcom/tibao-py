@@ -7,11 +7,13 @@ from datetime import datetime, timedelta
 import cv2
 import requests
 from loguru import logger
+from openpyxl.descriptors import DateTime
+
 from core.localhost_fp_project import session
 from playwright.sync_api import sync_playwright
 import traceback
 
-from models.models import Creator
+from models.models import Creator, CreatorNoteDetail
 from unitl.common import Common
 
 """
@@ -28,7 +30,6 @@ def get_resource_path(relative_path):
     except Exception:
         base_path = os.path.abspath("../../WeekAccountUpdate")
     return os.path.join(base_path, relative_path)
-
 
 def load_config():
     """加载配置文件"""
@@ -55,21 +56,17 @@ def load_config():
 
     # 解析配置
     return {
-        'API_TARGETS': config.get('API_TARGETS', 'targets').split(','),
-        'SCHEDULER_CONFIG': {
-            'enable_scheduler': config.getboolean('SCHEDULER', 'enable_scheduler'),
-            'daily_time': config.get('SCHEDULER', 'daily_time'),
-            'run_once': config.getboolean('SCHEDULER', 'run_once'),
-            'check_interval': config.getint('SCHEDULER', 'check_interval')
+        'PGY_LOGIN_CONFIG': {
+            'page': config.get('PGY_LOGIN', 'page'),
+            'pagesize': config.get('PGY_LOGIN', 'pagesize')
         }
     }
-
 
 class PGYSpider:
     def __init__(self):
         # 加载配置
-        self.config = load_config()
         self.setup_logger()
+        self.config = load_config()
 
         # 设置cookie和数据目录，支持exe打包
         if hasattr(sys, '_MEIPASS'):
@@ -89,6 +86,7 @@ class PGYSpider:
         self.base_url = 'https://pgy.xiaohongshu.com'
         self.is_logged_in = False
         self.api_data = {}  # 存储API数据
+        self.creator_id = 0
         self.progress_file = os.path.join(self.data_dir, 'scraping_progress.json')
 
         self.common = Common()
@@ -264,236 +262,231 @@ class PGYSpider:
             return False
 
     def scrape_user_notes(self):
-        """抓取博主信息 - 重构版本，匹配PHP逻辑"""
-        logger.info("开始无限循环查询新签约博主数据...")
+        try:
+            if not self.is_logged_in:
+                logger.error("未登录状态，无法抓取数据")
+                logger.info("等待5分钟后重试...")
+                time.sleep(300)  # 5分钟 = 300秒
+                return
+            creator_data = (
+                session.query(Creator)
+                .filter(Creator.status == 1)
+                .offset((int(self.config['PGY_LOGIN_CONFIG']['page']) - 1) * int(self.config['PGY_LOGIN_CONFIG']['pagesize']))
+                .limit(int(self.config['PGY_LOGIN_CONFIG']['pagesize']))
+                .all()
+            )
 
-        while True:
-            try:
-                if not self.is_logged_in:
-                    logger.error("未登录状态，无法抓取数据")
-                    logger.info("等待5分钟后重试...")
-                    time.sleep(300)  # 5分钟 = 300秒
-                    continue
-                creator_data = session.query(Creator).filter(Creator.status == 1).all()
+            if len(creator_data) > 0:
+                logger.info(f"找到 {len(creator_data)} 个博主数据，开始处理...")
 
-                if len(creator_data) > 0:
-                    logger.info(f"找到 {len(creator_data)} 个博主数据，开始处理...")
+                for item in creator_data:
+                    if not item.platform_user_id:
+                        continue
 
-                    for creator in creator_data:
-                        if not creator['platform_user_id']:
-                            continue
+                    try:
+                        # 清空之前的数据
+                        self.api_data.clear()
+
+                        logger.info(f"正在处理博主: {item.creator_nickname}")
+
+                        # 访问页面
+                        page_url = f"https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/{item.platform_user_id:}"
+                        logger.info(f"开始访问页面: {page_url}")
 
                         try:
-                            # 清空之前的数据
-                            self.api_data.clear()
+                            self.page.goto(page_url)
+                        except Exception as e:
+                            logger.error(f"访问页面失败: {str(e)}")
+                            continue
 
-                            logger.info(f"正在处理博主: {creator['platform_user_id']}")
+                        # 等待页面加载完成
+                        try:
+                            self.page.wait_for_load_state('networkidle', timeout=5000)
+                        except Exception as e:
+                            logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-                            # 访问页面
-                            page_url = f"https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/{creator['platform_user_id']}"
-                            logger.info(f"开始访问页面: {page_url}")
+                        self.common.random_sleep(30, 35)
 
+                        if self.api_data:
+                            # 创建api_data的副本进行遍历，参考原版
+                            api_data_copy = dict(self.api_data)
+                            for api_url, response_data in api_data_copy.items():
+                                if 'data' not in response_data:
+                                    continue
+
+                                api_data = response_data['data']
+                                if 'blogger' in api_url:
+                                    self._process_blogger(api_data, item)
+                                elif 'notes_detail' in api_url:
+                                    self._process_notes_detail(api_data, item)
+
+
+                            # 所有 API 数据处理完毕后，点击笔记按钮
                             try:
-                                self.page.goto(page_url)
-                            except Exception as e:
-                                logger.error(f"访问页面失败: {str(e)}")
-                                continue
+                                self.api_data.clear()
+                                self.common.random_sleep(10, 15)
+                                # 处理第一页笔记详情数据
+                                notes_data_copy = dict(self.api_data)
+                                should_continue_pagination = True
 
-                            # 等待页面加载完成
-                            try:
-                                self.page.wait_for_load_state('networkidle', timeout=5000)
-                            except Exception as e:
-                                logger.warning(f"等待页面加载完成时出错: {str(e)}")
+                                # 处理第一页数据
+                                for api_url, response_data in notes_data_copy.items():
+                                    if 'notes_detail' in api_url and 'data' in response_data:
+                                        api_data = response_data['data']
+                                        # 检查是否应该继续分页
+                                        should_continue_pagination = self._process_notes_detail(api_data, item)
+                                        break
 
-                            self.common.random_sleep(30, 40)
+                                # 如果应该继续分页，继续处理后续页面
+                                if should_continue_pagination:
+                                    logger.info("开始处理分页数据...")
+                                    page_count = 1
 
-                            if self.api_data:
-                                # 创建api_data的副本进行遍历，参考原版
-                                api_data_copy = dict(self.api_data)
-                                for api_url, response_data in api_data_copy.items():
-                                    if 'data' not in response_data:
-                                        continue
+                                    while self._click_next_page():
+                                        page_count += 1
+                                        logger.info(f"正在处理第 {page_count} 页数据...")
 
-                                    api_data = response_data['data']
-                                    if 'blogger' in api_url:
-                                        self._process_blogger(api_data, creator)
-                                    elif 'notes_detail' in api_url:
-                                        self._process_notes_detail(api_data, creator)
+                                        # 等待API数据加载
+                                        self.common.random_sleep(10, 15)
 
-
-                                # 所有 API 数据处理完毕后，点击笔记按钮
-                                try:
-                                    self.api_data.clear()
-                                    self.common.random_sleep(10, 15)
-                                    # 处理第一页笔记详情数据
-                                    notes_data_copy = dict(self.api_data)
-                                    should_continue_pagination = True
-
-                                    # 处理第一页数据
-                                    for api_url, response_data in notes_data_copy.items():
-                                        if 'notes_detail' in api_url and 'data' in response_data:
-                                            api_data = response_data['data']
-                                            # 检查是否应该继续分页
-                                            should_continue_pagination = self._process_notes_detail(api_data, creator)
-                                            break
-
-                                    # 如果应该继续分页，继续处理后续页面
-                                    if should_continue_pagination:
-                                        logger.info("开始处理分页数据...")
-                                        page_count = 1
-
-                                        while self._click_next_page():
-                                            page_count += 1
-                                            logger.info(f"正在处理第 {page_count} 页数据...")
-
-                                            # 等待API数据加载
-                                            self.common.random_sleep(10, 15)
-
-                                            # 处理当前页数据
-                                            for api_url, response_data in self.api_data.items():
-                                                if 'notes_detail' in api_url and 'data' in response_data:
-                                                    api_data = response_data['data']
-                                                    should_continue_pagination = self._process_notes_detail(api_data, creator)
-                                                    break
-
-                                            # 如果不应该继续分页，退出循环
-                                            if not should_continue_pagination:
-                                                logger.info(f"第 {page_count} 页数据距离今天超过90天，停止分页")
+                                        # 处理当前页数据
+                                        for api_url, response_data in self.api_data.items():
+                                            if 'notes_detail' in api_url and 'data' in response_data:
+                                                api_data = response_data['data']
+                                                should_continue_pagination = self._process_notes_detail(api_data, item)
                                                 break
 
-                                            # 清空当前页的API数据，准备处理下一页
-                                            self.api_data.clear()
+                                        # 如果不应该继续分页，退出循环
+                                        if not should_continue_pagination:
+                                            logger.info(f"第 {page_count} 页数据距离今天超过90天，停止分页")
+                                            break
 
-                                        logger.info(f"分页处理完成，共处理了 {page_count} 页数据")
-                                    else:
-                                        logger.info("第一页数据距离今天超过90天，无需分页")
+                                        # 清空当前页的API数据，准备处理下一页
+                                        self.api_data.clear()
 
-                                except Exception as db_error:
-                                    logger.error(f"更新数据库时出错: {str(db_error)}")
-                                    # 继续处理下一个博主，不退出程序
+                                    logger.info(f"分页处理完成，共处理了 {page_count} 页数据")
+                                else:
+                                    logger.info("第一页数据距离今天超过90天，无需分页")
 
-                            else:
-                                logger.info(f"未捕获到博主 {creator.get('creator_nickname')} 的API请求")
+                            except Exception as db_error:
+                                logger.error(f"更新数据库时出错: {str(db_error)}")
+                                # 继续处理下一个博主，不退出程序
 
-                        except Exception as e:
-                            logger.error(f"处理博主 {creator.get('creator_nickname')} 数据时出错: {str(e)}")
-                            continue
-                else:
-                    logger.info("没有找到新签约博主数据")
+                        else:
+                            logger.info(f"未捕获到博主 {item.creator_nickname} 的API请求")
 
-                # 保存进度和Cookie
-                self._save_cookies()
+                    except Exception as e:
+                        logger.error(f"处理博主 {item.creator_nickname} 数据时出错: {str(e)}")
+                        continue
+            else:
+                logger.info("没有找到新签约博主数据")
 
-                logger.info("本轮数据处理完成，等待5分钟后继续查询...")
-                time.sleep(300)  # 5分钟 = 300秒
+            # 保存进度和Cookie
+            self._save_cookies()
 
-            except Exception as e:
-                logger.error(f"抓取用户笔记时出错: {str(e)}")
-                logger.error(f"错误详情: {traceback.format_exc()}")
-                self.update_monitor_status(
-                    status="出错",
-                    fail_count=self.monitor_data.get('fail_count', 0) + 1
-                )
-                logger.info("发生错误，等待5分钟后重试...")
-                time.sleep(300)  # 5分钟 = 300秒
-                continue  # 继续下一次循环
+            logger.info("本轮数据处理完成，等待5分钟后继续查询...")
+            time.sleep(300)  # 5分钟 = 300秒
+
+        except Exception as e:
+            logger.error(f"抓取用户笔记时出错: {str(e)}")
+            logger.error(f"错误详情: {traceback.format_exc()}")
+            self.update_monitor_status(
+                status="出错",
+                fail_count=self.monitor_data.get('fail_count', 0) + 1
+            )
+            logger.info("发生错误，等待5分钟后重试...")
+            return
 
     def _process_blogger(self, api_data, url):
+        self.creator_id = url.id
         if api_data['code'] == 0:
-            data = api_data['data']
+            data = api_data.get('data', {}) or {}
+            note_sign = data.get('noteSign') or {}
+            tag_str = ''
+            tags = data.get('contentTags', [])
+            if tags and isinstance(tags, list):
+                first_tag = tags[0]  # 取第一个标签对象
+                taxonomy1 = first_tag.get('taxonomy1Tag', '')
+                taxonomy2_list = first_tag.get('taxonomy2Tags', [])
+                taxonomy2 = taxonomy2_list[0] if taxonomy2_list else ''
+                tag_str = f"{taxonomy1}-{taxonomy2}" if taxonomy1 or taxonomy2 else ''
+            else:
+                tag_str = ''
 
-            session.query(Creator).filter(Creator.id == url['id']).update([
-                'platform_account_id' == 1
-            ])
+            try:
+                session.query(Creator).filter(Creator.id == url.id).update({
+                    Creator.creator_nickname: data.get('name') or '',
+                    Creator.platform_account_id: data.get('redId') or '',
+                    Creator.creator_location: data.get('location') or '',
+                    Creator.fans_count: data.get('fansCount') or 0,
+                    Creator.like_collect_count: data.get('likeCollectCountInfo') or 0,
+                    Creator.picture_price: data.get('picturePrice') or 0.00,
+                    Creator.video_price: data.get('videoPrice') or 0.00,
+                    Creator.creator_gender: data.get('gender') or 0,
+                    Creator.creator_avatar: data.get('headPhoto') or '',
+                    Creator.account_level: data.get('currentLevel') or 0,
+                    Creator.content_field: tag_str,
+                    Creator.mcn_name: note_sign.get('name') or '',
+                    Creator.status:2
+                })
+                session.commit()
 
-            notesign = ''
-            # 处理签约信息
-            if data.get('noteSign'):
-                notesign = data['noteSign']['name']
+            except Exception as e:
+                session.rollback()
+                print(f"[错误] 更新 Creator 失败, ID={url.id}, 错误详情: {e}")
 
-            # 处理价格信息
-            picture_price = 0
-            video_price = 0
-            if data.get('videoPrice'):
-                video_price = data.get('videoPrice', 0)
-            if data.get('picturePrice'):
-                picture_price = data.get('picturePrice', 0)
-
-    def _process_notes_detail(self, api_data, creator):
+    def _process_notes_detail(self, api_data, url):
         """处理笔记详情数据"""
         if api_data['code'] != 0:
             return False  # 返回False表示不应该继续分页
 
         try:
-            data = api_data['data']
-            
+            data = api_data.get('data', {}) or {}
+            note_list = data.get('list', [])
             # 将当前页的每个笔记数据添加到列表中
-            if data.get('list') and isinstance(data['list'], list):
+            if note_list and isinstance(note_list, list):
                 for item in data['list']:
-                    # 克隆每个笔记项目并添加平台用户ID
                     item_data = dict(item)
-                    item_data['platform_user_id'] = creator.get('platform_user_id', '')
+                    emplo = session.query(CreatorNoteDetail).filter(CreatorNoteDetail.note_id == item_data.get('noteId')).first()
+                    if emplo:
+                        continue
 
-            # 初始化计数器
-            day30 = 0
-            day90 = 0
-            all_orders = 0
-            video_order = 0
-            graphic_order = 0
-
-            # 获取当前时间
-            current_date = datetime.now()
-            # 计算30天前和90天前的日期
-            thirty_days_ago = current_date - timedelta(days=30)
-            days_ago_90 = current_date - timedelta(days=90)
+                    note_detail = CreatorNoteDetail(
+                        creator_id=self.creator_id,
+                        note_id=item_data.get('noteId') or '',
+                        note_title=item_data.get('title') or '',
+                        brand_name=item_data.get('brandName') or '',
+                        note_date=item_data.get('date') or '',
+                        is_video=item_data.get('isVideo') or False,
+                        is_advertise=item_data.get('isAdvertise') or False,
+                        like_num=item_data.get('likeNum') or 0,
+                        collect_num=item_data.get('collectNum') or 0,
+                        read_num=item_data.get('readNum') or 0,
+                        create_time=int(datetime.now().timestamp()),
+                        update_time=int(datetime.now().timestamp())
+                    )
+                    session.add(note_detail)
+                session.commit()
 
             # 检查最后一条数据的时间，判断是否应该继续分页
             should_continue = True
-            if data.get('list') and len(data['list']) > 0:
-                try:
-                    # 获取最后一条数据的日期
-                    last_item = data['list'][-1]
-                    last_date_str = last_item.get('date')
-                    if last_date_str:
+            if note_list:
+                last_item = note_list[-1]
+                last_date_str = last_item.get('date')
+                if last_date_str:
+                    try:
                         last_date = datetime.strptime(last_date_str, '%Y-%m-%d')
-                        # 如果最后一条数据距离今天超过90天，停止分页
-                        if (current_date - last_date).days > 90:
+                        # 超过90天的内容停止爬取
+                        if url.sign_end_time >= last_date:
                             should_continue = False
-                            logger.info(f"最后一条数据日期为 {last_date_str}，距离今天超过90天，停止分页")
-                except Exception as e:
-                    logger.warning(f"解析最后一条数据日期时出错: {str(e)}")
-                    # 如果解析失败，默认继续分页
-                    should_continue = True
-
-            # 遍历列表计算订单数量
-            for item in data.get('list', []):
-                try:
-                    isVideo = item['isVideo']
-                    if isVideo:
-                        video_order += 1
-                    else:
-                        graphic_order += 1
-                    # 将字符串日期转换为datetime对象
-                    item_date = datetime.strptime(item['date'], '%Y-%m-%d')
-
-                    # 检查是否在最近30天内
-                    if thirty_days_ago <= item_date <= current_date:
-                        day30 += 1
-
-                    # 检查是否在最近90天内
-                    if days_ago_90 <= item_date <= current_date:
-                        day90 += 1
-
-                    all_orders += 1
-                except (ValueError, KeyError):
-                    continue
-
-            # 返回是否应该继续分页
+                            logger.info(f"最后一条数据日期为 {last_date_str}，超过签约时间，停止分页")
+                    except Exception as e:
+                        logger.warning(f"解析最后一条数据日期时出错: {str(e)}")
             return should_continue
 
         except Exception as e:
             logger.error(f"处理笔记详情数据时出错: {str(e)}")
-            # 出错时默认继续分页
+            session.rollback()
             return True
 
     def _click_next_page(self):
@@ -588,7 +581,10 @@ class PGYSpider:
         try:
             url = response.url
             # 从配置获取需要捕获的API路径
-            target_apis = self.config['API_TARGETS']
+            target_apis = [
+                'solar/cooperator/user/blogger',
+                'notes_detail'
+            ]
 
             # 检查是否是目标API
             is_target_api = any(api in url for api in target_apis)

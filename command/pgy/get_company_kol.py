@@ -15,8 +15,9 @@ from core.database_text_tibao_2 import session
     获取公司博主的信息
 """
 # 方片新媒体 方片家居 方片母婴 方片时尚 方片家居
-mcn_ids = ['589ddd6e6a6a69130bf6dd6c', '590e88cd5e87e73c862ccf34', '61c68e7d0000000010008663',
-           '5cf211ba000000000503e73f', '6117229e000000000100aab6']
+# mcn_ids = ['589ddd6e6a6a69130bf6dd6c', '590e88cd5e87e73c862ccf34', '61c68e7d0000000010008663',
+#            '5cf211ba000000000503e73f', '6117229e000000000100aab6']
+mcn_ids = ['6117229e000000000100aab6']
 
 
 def get_kols_data():

@@ -157,7 +157,6 @@ def query_and_export_data():
                     '60s视频报价': extract_field_value(attribute_datas, 'price_20_60'),
                     '60s+视频报价': extract_field_value(attribute_datas, 'price_60'),
                     '种草平台裸价': '',  # 需要从task_infos中提取
-                    '性别': extract_field_value(attribute_datas, 'gender'),
                     '所在地区': extract_field_value(attribute_datas, 'city')
                 }
                 
@@ -184,7 +183,10 @@ def query_and_export_data():
 
         # 创建DataFrame
         df = pd.DataFrame(excel_data)
-        
+
+        # 添加循环序号列（1-16循环）
+        df.insert(0, '序号', [(i % 16) + 1 for i in range(len(df))])
+
         # 自动生成保存路径
         save_path = generate_export_path()
         if not save_path:

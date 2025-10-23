@@ -153,7 +153,7 @@ def get_invites_data(token_content):
         
         base_data = {
             "pageNum": 1,
-            "pageSize": 9999,
+            "pageSize": 100,
             "inviteStatus": "-1",
             "kolIntention": "-1",
             "kolType": 0,

@@ -30,7 +30,7 @@ def get_base_path():
         return os.path.dirname(os.path.abspath(sys.argv[0])) if hasattr(sys, '_MEIPASS') else os.path.dirname(
             os.path.abspath(__file__))
     except Exception:
-        return os.path.abspath(".")
+        return os.path.abspath("../..")
 
 
 class DouYinSpiderExcel:

@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, Text, TIMESTAMP, BigInteger, DECIMAL
+﻿from sqlalchemy import Column, Integer, String, Numeric, DateTime, Text, TIMESTAMP, BigInteger, DECIMAL, \
+    UniqueConstraint, text, Date, Index, Date, Index, SmallInteger, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
@@ -198,153 +199,105 @@ class KolMediaAccountsWaicaiInfo(Base):
     content_categories = Column(String(200), comment='内容类目及占比')
     cooperated_industries = Column(String(255), comment='合作行业')
 
-    # 平台相关数据
-    dandelion_platform_link = Column(String(255), comment='蒲公英平台链接')
-    dandelion_platform_id = Column(String(255), comment='蒲公英平台ID')
-    graphic_price = Column(Numeric(10, 2), comment='图文一口价')
-    video_price = Column(Numeric(10, 2), comment='视频一口价')
 
-    # 其他业务数据
-    shipping_address = Column(String(200), comment='所在地区')
-    blogger_rebate_ratio = Column(Numeric(5, 2), nullable=False, default=0.20, comment='博主返点比例')
-    dw_id = Column(String(255), comment='多维表格id')
-    record_id = Column(String(255), comment='多维表格record')
+class QgBloggerRank(Base):
+    __tablename__ = 'qg_blogger_rank'
 
-    # 系统统计数据
-    system_total_orders = Column(Integer, nullable=False, default=0, comment='系统总商单量')
-    system_orders_30_days = Column(Integer, nullable=False, default=0, comment='系统30天商单量')
-    system_orders_90_days = Column(Integer, nullable=False, default=0, comment='系统90天商单量')
-    pgy_total_orders = Column(Integer, nullable=False, default=0, comment='蒲公英总商单量')
-    pgy_orders_30_days = Column(Integer, nullable=False, default=0, comment='蒲公英30天商单量')
-    pgy_orders_90_days = Column(Integer, nullable=False, default=0, comment='蒲公英90天商单量')
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='自增ID')
+    nickname = Column(String(100), nullable=False, comment='博主昵称')
+    rank_number = Column(Integer, default=0, comment='排名')
+    change_number = Column(Integer, default=0, comment='排名变化值')
+    rank_value = Column(BigInteger, default=0, comment='榜单分值')
+    rank_value_attach = Column(BigInteger, default=0, comment='附加分值')
+    increase_rank_value = Column(DECIMAL(10, 2), default=0, comment='涨幅（百分比）')
+    mcn_user_id = Column(String(64), comment='MCN用户ID')
+    small_avatar = Column(String(255), comment='头像URL')
+    blogger_tags = Column(String(255), comment='标签文本汇总')
+    blogger_count = Column(Integer, default=0, comment='合作博主数量')
+    note_count = Column(Integer, default=0, comment='笔记数量')
+    like_collect = Column(Integer, default=0, comment='点赞收藏总数')
+    fans_count = Column(Integer, default=0, comment='粉丝数')
+    brand_count = Column(Integer, default=0, comment='合作品牌数')
+    institute_name = Column(String(100), comment='机构名称')
+    is_certification = Column(Integer, default=0, comment='是否认证：否 1是')
+    current_user_is_favorite = Column(Integer, default=0, comment='当前用户是否收藏：否 1是')
+    create_time = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), comment='创建时间')
+    month = Column(String(20), comment='数据月份')
+    update_time = Column(
+        TIMESTAMP,
+        server_default=text('CURRENT_TIMESTAMP'),
+        onupdate=text('CURRENT_TIMESTAMP'),
+        comment='更新时间'
+    )
 
-    # 状态标记
-    is_update = Column(Integer, nullable=False, default=1, comment='当天是否更新')
-    currentLevel = Column(Integer, default=2, comment='当前等级')
-    is_water_account = Column(Integer, default=0, comment='是否是水号 0否 1是')
-    is_added_to_training_group = Column(Integer, nullable=False, default=0, comment='是否拉培训群')
-    is_added_to_operation_group = Column(Integer, nullable=False, default=0, comment='是否拉运营群')
 
-    # 阅读数据
-    read_median = Column(Integer, nullable=False, default=0, comment='阅读中位数')
-    interaction_median = Column(Integer, nullable=False, default=0, comment='互动中位数')
-    coop_pic_text_exposure_median = Column(Integer, nullable=False, default=0, comment='互动中位数')
-    # imp_median = Column(Integer, comment='图文+视频曝光中位数')
+class QgBrandInfo(Base):
+    __tablename__ = 'qg_brand_info'
+    __table_args__ = (
+        UniqueConstraint('brand_id', name='uniq_brand_id'),
+    )
 
-    # 添加缺失的字段
-    picture_read_cost = Column(DECIMAL(10, 2), nullable=True, default=0, comment='图文阅读单价')
-    video_read_cost = Column(DECIMAL(10, 2), nullable=True, default=0, comment='视频阅读单价')
-    gender = Column(String(10), nullable=True, comment='性别')
-    reading_followers_percentage = Column(DECIMAL(10, 4), nullable=True, default=0, comment='阅读粉丝占比')
-    engaged_followers_percentage = Column(DECIMAL(10, 4), nullable=True, default=0, comment='互动粉丝占比')
-    reading_followers_benchmark_exceed = Column(DECIMAL(10, 4), nullable=True, default=0, comment='阅读粉丝基准超出')
-    engaged_followers_benchmark_exceed = Column(DECIMAL(10, 4), nullable=True, default=0, comment='互动粉丝基准超出')
-    brand_name = Column(Text, nullable=True, comment='品牌名称')
-    active_followers_percentage = Column(DECIMAL(10, 4), nullable=True, default=0, comment='活跃粉丝占比')
-    active_followers_benchmark_exceed = Column(DECIMAL(10, 4), nullable=True, default=0, comment='活跃粉丝基准超出')
-    notesign = Column(String(255), nullable=True, comment='博主所在机构')
-    last_update_time = Column(DateTime, nullable=True, comment='最后更新时间')
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='自增主键')
+    brand_id = Column(String(500), nullable=False, comment='品牌ID（BrandId）')
+    brand_id_key = Column(String(64), comment='品牌唯一Key（BrandIdKey）')
+    brand_name = Column(String(255), nullable=False, comment='品牌名称（BrandName）')
+    brand_logo = Column(String(500), comment='品牌Logo地址（BrandLogo）')
+    brand_intro = Column(Text, comment='品牌简介（BrandIntro）')
+    note_count = Column(Integer, default=0, comment='笔记数量（NoteCount）')
+    active_count = Column(Integer, default=0, comment='活跃数量（ActiveCount）')
+    amount_desc = Column(String(50), comment='金额描述（AmountDesc）')
+    amount = Column(BigInteger, default=0, comment='实际金额数值（Amount）')
+    blogger_id = Column(BigInteger, comment='关联的博主ID')
+    month = Column(String(20), comment='数据月份')
+    create_time = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), comment='创建时间')
+    update_time = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'), comment='更新时间')
 
-    # 日常图文+视频相关字段
-    daily_pic_video_exposure_median = Column(Integer, nullable=False, default=0, comment='日常图文+视频曝光中位数')
-    daily_pic_video_reading_median = Column(Integer, nullable=False, default=0, comment='日常图文+视频阅读中位数')
-    daily_pic_video_interaction_median = Column(Integer, nullable=False, default=0, comment='日常图文+视频互动中位数')
-    daily_pic_video_interaction_rate = Column(DECIMAL(10, 4), nullable=False, default=0, comment='日常图文+视频互动率')
-    daily_pic_video_likes_note_ratio = Column(DECIMAL(10, 4), nullable=False, default=0,
-                                              comment='日常图文+视频百赞笔记比例')
-    daily_pic_video_hundred_likes_note_ratio = Column(DECIMAL(10, 4), nullable=False, default=0,
-                                                      comment='日常图文+视频千赞笔记比例')
-    daily_pic_video_completion_rate = Column(DECIMAL(10, 4), nullable=False, default=0, comment='日常图文+视频完播率')
-    daily_pic_video_three_sec_reading_rate = Column(DECIMAL(10, 4), nullable=False, default=0,
-                                                    comment='日常图文+视频图文3秒阅读率')
 
-    # 合作图文+视频相关字段
-    cooperation_pic_video_exposure_median = Column(Integer, nullable=False, default=0,
-                                                   comment='合作图文+视频曝光中位数')
-    cooperation_pic_video_reading_median = Column(Integer, nullable=False, default=0, comment='合作图文+视频阅读中位数')
-    cooperation_pic_video_interaction_median = Column(Integer, nullable=False, default=0,
-                                                      comment='合作图文+视频互动中位数')
-    cooperation_pic_video_interaction_rate = Column(DECIMAL(10, 4), nullable=False, default=0,
-                                                    comment='合作图文+视频互动率')
-    cooperation_pic_video_likes_note_ratio = Column(DECIMAL(10, 4), nullable=False, default=0,
-                                                    comment='合作图文+视频百赞笔记比例')
-    cooperation_pic_video_hundred_likes_note_ratio = Column(DECIMAL(10, 4), nullable=False, default=0,
-                                                            comment='合作图文+视频千赞笔记比例')
-    cooperation_pic_video_completion_rate = Column(DECIMAL(10, 4), nullable=False, default=0,
-                                                   comment='合作图文+视频完播率')
-    cooperation_pic_video_three_sec_reading_rate = Column(DECIMAL(10, 4), nullable=False, default=0,
-                                                          comment='合作图文+视频图文3秒阅读率')
 
-    # 日常图文相关字段
-    daily_pic_text_exposure_median = Column(Integer, nullable=False, default=0, comment='日常图文曝光中位数')
-    daily_pic_text_reading_median = Column(Integer, nullable=False, default=0, comment='日常图文阅读中位数')
-    daily_pic_text_interaction_median = Column(Integer, nullable=False, default=0, comment='日常图文互动中位数')
-    daily_pic_text_interaction_rate = Column(DECIMAL(10, 4), nullable=False, default=0, comment='日常图文互动率')
-    daily_pic_text_likes_note_ratio = Column(DECIMAL(10, 4), nullable=False, default=0, comment='日常图文百赞笔记比例')
-    daily_pic_text_hundred_likes_note_ratio = Column(DECIMAL(10, 4), nullable=False, default=0,
-                                                     comment='日常图文千赞笔记比例')
-    daily_pic_text_completion_rate = Column(DECIMAL(10, 4), nullable=False, default=0, comment='日常图文完播率')
-    daily_pic_text_three_sec_reading_rate = Column(DECIMAL(10, 4), nullable=False, default=0,
-                                                   comment='日常图文3秒阅读率')
-    daily_pic_text_notenumber = Column(Integer, nullable=False, default=0, comment='日常图文笔记数')
+class QgNoteInfo(Base):
+    __tablename__ = 'qg_note_info'
+    __table_args__ = (
+        UniqueConstraint('note_id', name='uniq_note_id'),
+        Index('idx_blogger_id', 'blogger_id'),
+        Index('idx_date_code', 'date_code'),
+        Index('idx_tag_name', 'tag_name'),
+    )
 
-    # CPE、CPM、CPC、CPR相关字段
-    daily_pic_text_cpe = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常图文CPE')
-    daily_pic_text_cpm = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常图文CPM')
-    daily_pic_text_cpc = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常图文CPC')
-    daily_pic_text_cpr = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常图文CPR')
-
-    # 合作图文相关字段
-    coop_pic_text_cpe = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作图文CPE')
-    coop_pic_text_cpm = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作图文CPM')
-    coop_pic_text_cpc = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作图文CPC')
-    coop_pic_text_cpr = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作图文CPR')
-
-    # 合作图文视频相关字段
-    cooperation_pic_video_video_cpe = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作视频CPE')
-    cooperation_pic_video_video_cpc = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作视频CPC')
-    cooperation_pic_video_video_cpm = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作视频CPM')
-    cooperation_pic_video_video_cpr = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作视频CPR')
-    cooperation_pic_video_text_cpe = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作图文CPE')
-    cooperation_pic_video_text_cpc = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作图文CPC')
-    cooperation_pic_video_text_cpm = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作图文CPM')
-    cooperation_pic_video_text_cpr = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作图文CPR')
-
-    # 日常视频相关字段
-    daily_video_hundred_likes_note_ratio = Column(DECIMAL(10, 4), nullable=False, default=0,
-                                                  comment='日常视频百赞笔记比例')
-    daily_video_thousand_likes_note_ratio = Column(DECIMAL(10, 4), nullable=False, default=0,
-                                                   comment='日常视频千赞笔记比例')
-    daily_video_three_sec_reading_rate = Column(DECIMAL(10, 4), nullable=False, default=0, comment='日常视频3秒阅读率')
-    daily_video_notenumber = Column(Integer, nullable=False, default=0, comment='日常视频笔记数')
-    daily_video_completion_rate = Column(DECIMAL(10, 4), nullable=False, default=0, comment='日常视频完播率')
-
-    # 日常图文视频文本相关字段
-    daily_pic_video_text_cpe = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常图文视频文本CPE')
-    daily_pic_video_text_cpc = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常图文视频文本CPC')
-    daily_pic_video_text_cpm = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常图文视频文本CPM')
-    daily_pic_video_text_cpr = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常图文视频文本CPR')
-
-    # 日常视频成本指标
-    daily_video_cpe = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常视频CPE')
-    daily_video_cpc = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常视频CPC')
-    daily_video_cpm = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常视频CPM')
-    daily_video_cpr = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常视频CPR')
-
-    # 合作视频成本指标
-    coop_video_cpe = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作视频CPE')
-    coop_video_cpc = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作视频CPC')
-    coop_video_cpm = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作视频CPM')
-    coop_video_cpr = Column(DECIMAL(10, 2), nullable=False, default=0, comment='合作视频CPR')
-
-    # 日常图文视频成本指标
-    daily_pic_video_video_cpe = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常图文视频CPE')
-    daily_pic_video_video_cpc = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常图文视频CPC')
-    daily_pic_video_video_cpm = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常图文视频CPM')
-    daily_pic_video_video_cpr = Column(DECIMAL(10, 2), nullable=False, default=0, comment='日常图文视频CPR')
-
-    followers_increase = Column(DECIMAL(5, 2), nullable=False, default=0, comment='粉丝增量')
-    followers_change_rate = Column(DECIMAL(5, 2), nullable=False, default=0, comment='粉丝量变化幅度')
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='自增主键')
+    note_id = Column(BigInteger, nullable=False, comment='笔记ID（NoteId）')
+    date_code = Column(Integer, comment='日期代码（DateCode）')
+    note_id_key = Column(String(64), comment='笔记唯一短Key（NoteIdKey）')
+    unique_id = Column(String(64), comment='系统唯一标识Id')
+    user_id = Column(String(64), comment='用户ID（UserId）')
+    title = Column(String(500), comment='笔记标题')
+    cover_image = Column(String(500), comment='封面图链接（CoverImage）')
+    blogger_id = Column(BigInteger, comment='博主ID（BloggerId）')
+    blogger_id_key = Column(String(64), comment='博主Key（BloggerIdKey）')
+    blogger_nickname = Column(String(255), comment='博主昵称')
+    blogger_prop = Column(String(100), comment='博主等级称号（如腰部达人）')
+    publish_time = Column(DateTime, comment='发布时间（PublishTime）')
+    note_type = Column(String(50), comment='笔记类型（NoteType）')
+    is_business = Column(Integer, default=0, comment='是否为商业笔记（IsBusiness）')
+    note_type_desc = Column(String(50), comment='笔记类型描述（NoteTypeDesc）')
+    props = Column(Integer, default=0, comment='笔记附加属性（Props）')
+    pub_date = Column(Date, comment='发布日期（PubDate）')
+    update_time_raw = Column(DateTime, comment='原始更新时间（UpdateTime）')
+    video_duration = Column(String(50), comment='视频时长（VideoDuration）')
+    gender = Column(Integer, comment='作者性别（男/女/未知）')
+    big_avatar = Column(String(500), comment='博主头像（大图）')
+    small_avatar = Column(String(500), comment='博主头像（小图）')
+    tag_name = Column(String(255), comment='笔记标签名称（TagName）')
+    cooperate_binds_name = Column(String(255), comment='合作品牌名称（CooperateBindsName）')
+    view_count = Column(Integer, default=0, comment='浏览量（ViewCount）')
+    active_count = Column(Integer, default=0, comment='互动量（ActiveCount）')
+    amount = Column(BigInteger, default=0, comment='笔记广告报价金额（Amount）')
+    ad_price_desc = Column(String(100), comment='广告报价描述（AdPriceDesc，如1.9万）')
+    ad_price_update_status = Column(Integer, default=0, comment='广告报价更新状态（AdPriceUpdateStatus）')
+    is_ad_note = Column(Integer, default=0, comment='是否广告笔记（IsAdNote）')
+    kol_id = Column(BigInteger, comment='关联的博主ID')
+    month = Column(String(20), comment='数据月份')
+    create_time = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), comment='记录创建时间')
+    update_time = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'), comment='记录更新时间')
 
 class BusinessContractPhone(Base):
     __tablename__ = 'business_contract_phone'
@@ -484,3 +437,58 @@ class DouyinSearchList(Base):
     created_at = Column(TIMESTAMP, nullable=True, comment='创建时间')
     updated_at = Column(TIMESTAMP, nullable=True, comment='更新时间')
     status = Column(Integer, nullable=True, default=0, comment='状态：0-未处理，1-处理成功，2-无创作能力')
+
+class Creator(Base):
+    __tablename__ = 'fp_creator'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='主键ID')
+    platform_user_id = Column(String(34), comment='平台user_id(如小红书id)')
+    platform_account_id = Column(String(30), unique=True, comment='平台账号id(如小红书id)')
+    mcn_name = Column(String(32), comment='所属机构')
+    creator_nickname = Column(String(32), comment='昵称')
+    creator_avatar = Column(String(128), comment='头像')
+    creator_gender = Column(String(32), comment='性别')
+    creator_location = Column(String(32), comment='地理位置')
+    fans_count = Column(Integer, default=0, comment='粉丝数')
+    like_collect_count = Column(Integer, default=0, comment='赞藏数量')
+    picture_price = Column(DECIMAL(10, 2), default=0.00, comment='图文合作价格')
+    video_price = Column(DECIMAL(10, 2), default=0.00, comment='视频合作价格')
+    account_level = Column(Integer, comment='账号等级')
+    content_field = Column(String(255), comment='领域标签')
+    status = Column(SmallInteger, default=1, comment='状态')
+    delete_time = Column(Integer, default=0, comment='删除时间')
+    create_time = Column(Integer, comment='创建时间')
+    create_user = Column(Integer, comment='创建人')
+    update_time = Column(Integer, comment='更新时间')
+    update_user = Column(Integer, comment='更新人')
+    picture_show_state = Column(SmallInteger, default=1, nullable=False, comment='picture暂停接单')
+    video_show_state = Column(SmallInteger, default=1, nullable=False, comment='video暂停接单')
+    employee_id = Column(Integer, comment='员工ID')
+    creator_id = Column(Integer, comment='创作者ID')
+    emoloyee_name = Column(String(255), comment='员工姓名')
+    dept_name = Column(String(255), comment='部门名称')
+    sign_start_time = Column(DateTime, comment='签约开始时间')
+    sign_end_time = Column(DateTime, comment='签约结束时间')
+
+class CreatorNoteDetail(Base):
+    __tablename__ = 'fp_creator_note_detail'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='主键ID')
+    creator_id = Column(BigInteger, nullable=True, comment='博主id', index=True)
+    note_id = Column(String(32), nullable=True, comment='笔记ID')
+    note_title = Column(String(128), nullable=True, comment='标题')
+    brand_name = Column(String(32), nullable=True, comment='品牌名称')
+    note_date = Column(String(16), nullable=True, comment='日期')
+    img_url = Column(String(128), nullable=True, comment='封面图片')
+    is_advertise = Column(Boolean, nullable=True, comment='是否广告')
+    is_video = Column(Boolean, nullable=True, comment='是否视频')
+    like_num = Column(Integer, nullable=True, comment='点赞数')
+    collect_num = Column(Integer, nullable=True, comment='收藏数')
+    read_num = Column(Integer, nullable=True, comment='阅读数')
+    create_time = Column(Integer, nullable=True, comment='创建时间')
+    update_time = Column(Integer, nullable=True, comment='更新时间')
+
+
+
+
+

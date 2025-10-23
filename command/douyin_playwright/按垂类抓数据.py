@@ -16,7 +16,7 @@ def get_base_path():
         return os.path.dirname(os.path.abspath(sys.argv[0])) if hasattr(sys, '_MEIPASS') else os.path.dirname(
             os.path.abspath(__file__))
     except Exception:
-        return os.path.abspath(".")
+        return os.path.abspath("../..")
 
 def load_config():
     """加载配置文件"""
@@ -374,7 +374,7 @@ class XingtuSpider:
                     continue
 
                 api_data = response_data['data']
-                if 'search_for_author_square' in api_url:
+                if 'q' in api_url:
                     authors_added = 0
                     authors_skipped = 0
 

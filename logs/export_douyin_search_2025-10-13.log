@@ -15,3 +15,12 @@
 2025-10-13 15:11:35 | INFO     | __main__:query_and_export_data:196 - 数据已成功导出到: D:\myHome\project\ti-bao-py\exports\douyin_search_export_20251013_151126.xlsx
 2025-10-13 15:11:35 | INFO     | __main__:query_and_export_data:197 - 共导出 58485 条记录
 2025-10-13 15:11:36 | INFO     | __main__:main:221 - ✅ 数据导出成功完成
+2025-10-13 16:34:05 | INFO     | __main__:main:217 - === 抖音搜索列表数据导出程序启动 ===
+2025-10-13 16:34:05 | INFO     | __main__:query_and_export_data:118 - 开始查询数据库...
+2025-10-13 16:34:05 | INFO     | __main__:query_and_export_data:123 - DouyinMcnDetail表中已存在的author_id数量: 68708
+2025-10-13 16:34:11 | INFO     | __main__:query_and_export_data:131 - 查询到 58485 条DouyinSearchList数据
+2025-10-13 16:34:13 | INFO     | __main__:query_and_export_data:178 - 成功处理 58485 条数据
+2025-10-13 16:34:13 | INFO     | __main__:generate_export_path:57 - 自动生成导出路径: D:\myHome\project\ti-bao-py\exports\douyin_search_export_20251013_163413.xlsx
+2025-10-13 16:34:21 | INFO     | __main__:query_and_export_data:198 - 数据已成功导出到: D:\myHome\project\ti-bao-py\exports\douyin_search_export_20251013_163413.xlsx
+2025-10-13 16:34:21 | INFO     | __main__:query_and_export_data:199 - 共导出 58485 条记录
+2025-10-13 16:34:22 | INFO     | __main__:main:223 - ✅ 数据导出成功完成

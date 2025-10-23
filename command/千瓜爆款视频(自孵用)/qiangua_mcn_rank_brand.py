@@ -256,8 +256,8 @@ class QianguaMcnRankSpider:
                                 item_list = response_data.get('Data', {}).get('ItemList', [])
                                 logger.info(f"GetMcnBrandList接口返回 {len(item_list)} 条品牌数据")
                             elif api_name == 'GetMcnBrandNoteList':
-                                logger.info("GetMcnBrandNoteList接口数据:")
-                                logger.info(json.dumps(response_data, ensure_ascii=False, indent=2))
+                                item_list = response_data.get('Data', {}).get('ItemList', [])
+                                logger.info(f"GetMcnBrandList接口返回 {len(item_list)} 条笔记数据")
                             elif api_name == 'GetMcnRankData':
                                 item_list = response_data.get('Data', {}).get('ItemList', [])
                                 logger.info(f"捕获 {len(item_list)} 条MCN排行数据")
@@ -391,8 +391,7 @@ class QianguaMcnRankSpider:
             logger.error(f"机构 {org_name} 排行数据处理异常: {str(e)}")
             return False
 
-
-    def save_brand_data_to_db(self, org_name):
+    def save_brand_data_to_db(self, org_name, year_month):
         """处理品牌列表数据写入数据库"""
         try:
             brand_entries = self.api_data.get('GetMcnBrandList', [])
@@ -414,16 +413,6 @@ class QianguaMcnRankSpider:
                     processed_entries.append(entry)
                     continue
 
-                brand_ids = [item.get('BrandId') for item in item_list if item.get('BrandId') is not None]
-                existing_map = {}
-                if brand_ids:
-                    existing_records = (
-                        session.query(QgBrandInfo)
-                        .filter(QgBrandInfo.brand_id.in_(brand_ids))
-                        .all()
-                    )
-                    existing_map = {record.brand_id: record for record in existing_records}
-
                 for item in item_list:
                     brand_id = item.get('BrandId')
                     if brand_id is None:
@@ -434,8 +423,11 @@ class QianguaMcnRankSpider:
                         amount_value = int(amount_value) if amount_value is not None else 0
                     except (TypeError, ValueError):
                         amount_value = 0
+                    blogger = session.query(QgBloggerRank).filter(QgBloggerRank.nickname == org_name).first()
 
                     payload = {
+                        'blogger_id': blogger.id,
+                        'month': year_month,
                         'brand_id': brand_id,
                         'brand_id_key': item.get('BrandIdKey'),
                         'brand_name': item.get('BrandName') or item.get('BrandNickName') or '未知品牌',
@@ -447,7 +439,10 @@ class QianguaMcnRankSpider:
                         'amount': amount_value,
                     }
 
-                    record = existing_map.get(brand_id)
+                    record = session.query(QgBrandInfo).filter(QgBrandInfo.brand_id == brand_id,
+                                                               QgBrandInfo.blogger_id == blogger.id,
+                                                                QgBrandInfo.month == year_month
+                                                               ).first()
                     if record:
                         for field, value in payload.items():
                             setattr(record, field, value)
@@ -478,153 +473,6 @@ class QianguaMcnRankSpider:
         except Exception as e:
             session.rollback()
             logger.error(f"机构 {org_name} 品牌数据处理异常: {str(e)}")
-            return False
-
-
-    def save_note_data_to_db(self, org_name=None):
-        """处理笔记列表数据写入数据库"""
-        try:
-            org_display = org_name or self.current_organization or '未知机构'
-
-            note_entries = self.api_data.get('GetMcnBrandNoteList', [])
-            if not note_entries:
-                wait_start = time.time()
-                while time.time() - wait_start < 3:
-                    note_entries = self.api_data.get('GetMcnBrandNoteList', [])
-                    if note_entries:
-                        break
-                    time.sleep(0.2)
-
-            if not note_entries:
-                logger.warning(f"未捕获机构 {org_display} 的笔记数据,跳过入库")
-                return False
-
-            inserted = 0
-            updated = 0
-            processed_entries = []
-
-            def parse_datetime(value):
-                if not value:
-                    return None
-                if isinstance(value, str):
-                    value = value.replace('Z', '+00:00')
-                    try:
-                        return datetime.fromisoformat(value)
-                    except ValueError:
-                        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S'):
-                            try:
-                                return datetime.strptime(value, fmt)
-                            except ValueError:
-                                continue
-                return None
-
-            def to_int(value):
-                try:
-                    return int(value)
-                except (TypeError, ValueError):
-                    return 0
-
-            for entry in note_entries:
-                if entry.get('processed'):
-                    continue
-
-                response_data = entry.get('data') or {}
-                item_list = (response_data.get('Data') or {}).get('ItemList') or []
-                if not item_list:
-                    processed_entries.append(entry)
-                    continue
-
-                note_ids = [item.get('NoteId') for item in item_list if item.get('NoteId') is not None]
-                existing_map = {}
-                if note_ids:
-                    existing_records = (
-                        session.query(QgNoteInfo)
-                        .filter(QgNoteInfo.note_id.in_(note_ids))
-                        .all()
-                    )
-                    existing_map = {record.note_id: record for record in existing_records}
-
-                for item in item_list:
-                    note_id = item.get('NoteId')
-                    if note_id is None:
-                        continue
-
-                    amount_value = to_int(item.get('Amount'))
-                    publish_time = parse_datetime(item.get('PublishTime'))
-                    update_time_raw = parse_datetime(item.get('UpdateTime'))
-
-                    pub_date = None
-                    pub_date_value = item.get('PubDate')
-                    if pub_date_value:
-                        try:
-                            pub_date = datetime.strptime(pub_date_value, '%Y-%m-%d').date()
-                        except ValueError:
-                            pub_date = None
-
-                    payload = {
-                        'note_id': note_id,
-                        'date_code': item.get('DateCode'),
-                        'note_id_key': item.get('NoteIdKey'),
-                        'unique_id': item.get('Id'),
-                        'user_id': item.get('UserId'),
-                        'title': item.get('Title'),
-                        'cover_image': item.get('CoverImage'),
-                        'blogger_id': item.get('BloggerId'),
-                        'blogger_id_key': item.get('BloggerIdKey'),
-                        'blogger_nickname': item.get('BloggerNickName'),
-                        'blogger_prop': item.get('BloggerProp'),
-                        'publish_time': publish_time,
-                        'note_type': item.get('NoteType'),
-                        'is_business': 1 if item.get('IsBusiness') else 0,
-                        'note_type_desc': item.get('NoteTypeDesc'),
-                        'props': to_int(item.get('Props')),
-                        'pub_date': pub_date,
-                        'update_time_raw': update_time_raw,
-                        'video_duration': item.get('VideoDuration'),
-                        'gender': to_int(item.get('Gender')) if item.get('Gender') is not None else None,
-                        'big_avatar': item.get('BigAvatar'),
-                        'small_avatar': item.get('SmallAvatar'),
-                        'tag_name': item.get('TagName'),
-                        'cooperate_binds_name': item.get('CooperateBindsName'),
-                        'view_count': to_int(item.get('ViewCount')),
-                        'active_count': to_int(item.get('ActiveCount')),
-                        'amount': amount_value,
-                        'ad_price_desc': item.get('AdPriceDesc'),
-                        'ad_price_update_status': to_int(item.get('AdPriceUpdateStatus')),
-                        'is_ad_note': 1 if item.get('IsAdNote') else 0,
-                    }
-
-                    record = existing_map.get(note_id)
-                    if record:
-                        for field, value in payload.items():
-                            setattr(record, field, value)
-                        updated += 1
-                    else:
-                        session.add(QgNoteInfo(**payload))
-                        inserted += 1
-
-                processed_entries.append(entry)
-
-            if inserted or updated:
-                session.commit()
-                logger.info(
-                    f"机构 {org_display} 笔记数据写入数据库完成: 新增 {inserted} 条, 更新 {updated} 条"
-                )
-            else:
-                logger.info(f"机构 {org_display} 笔记数据无更新,跳过提交")
-
-            for entry in processed_entries:
-                entry['processed'] = True
-
-            self.api_data['GetMcnBrandNoteList'] = [entry for entry in note_entries if not entry.get('processed')]
-            return inserted > 0 or updated > 0
-        except SQLAlchemyError as db_err:
-            session.rollback()
-            logger.error(f"机构 {org_display} 笔记数据入库失败: {db_err}")
-            return False
-        except Exception as e:
-            session.rollback()
-            logger.error(f"机构 {org_display} 笔记数据处理异常: {str(e)}")
             return False
 
     def load_cookies(self):
@@ -719,7 +567,8 @@ class QianguaMcnRankSpider:
             if 'GetMcnRankData' in self.api_data:
                 self.api_data['GetMcnRankData'] = []
 
-            search_input = self.page.locator('.search-box.mr16 .el-autocomplete.s-input .el-input.el-input--medium.el-input-group.el-input-group--append.el-input--suffix input')
+            search_input = self.page.locator(
+                '.search-box.mr16 .el-autocomplete.s-input .el-input.el-input--medium.el-input-group.el-input-group--append.el-input--suffix input')
 
             search_input.fill('')
             self.human_delay(0.6, 1.2)
@@ -737,8 +586,8 @@ class QianguaMcnRankSpider:
                     'response',
                     timeout=10000,
                     predicate=lambda response: (
-                        'GetMcnRankData' in response.url
-                        and response.request.resource_type in ('xhr', 'fetch')
+                            'GetMcnRankData' in response.url
+                            and response.request.resource_type in ('xhr', 'fetch')
                     )
                 )
                 new_data_received = True
@@ -887,13 +736,13 @@ class QianguaMcnRankSpider:
                     }
 
                     const thirdDiv = divs[2]; // 索引为2是第三个
-                    
+
                     // 获取日期选择器的位置信息
                     const dateEditor = thirdDiv.querySelector('.el-date-editor--daterange');
                     if (!dateEditor) {
                         return {success: false, message: '未找到日期选择器'};
                     }
-                    
+
                     const rect = dateEditor.getBoundingClientRect();
                     return {
                         success: true, 
@@ -915,9 +764,9 @@ class QianguaMcnRankSpider:
             # 使用坐标点击日期选择器的中心位置
             click_x = result['x']
             click_y = result['y']
-            
+
             logger.info(f"准备点击坐标: x={click_x}, y={click_y}")
-            
+
             # 使用page.mouse.click点击指定坐标
             self.page.mouse.click(click_x, click_y)
             logger.info(f"已点击日期选择器坐标")
@@ -973,11 +822,13 @@ class QianguaMcnRankSpider:
                     if (current_year < year) or (current_year == year and current_month < month):
                         # 需要向右切换(未来的月份)
                         logger.info("点击右侧箭头切换到下一个月")
-                        self.page.click('.el-picker-panel__content.el-date-range-picker__content.is-right .el-date-range-picker__header .el-picker-panel__icon-btn.el-icon-arrow-right')
+                        self.page.click(
+                            '.el-picker-panel__content.el-date-range-picker__content.is-right .el-date-range-picker__header .el-picker-panel__icon-btn.el-icon-arrow-right')
                     else:
                         # 需要向左切换(过去的月份)
                         logger.info("点击左侧箭头切换到上一个月")
-                        self.page.click('.el-picker-panel__content.el-date-range-picker__content.is-left .el-date-range-picker__header .el-picker-panel__icon-btn.el-icon-arrow-left')
+                        self.page.click(
+                            '.el-picker-panel__content.el-date-range-picker__content.is-left .el-date-range-picker__header .el-picker-panel__icon-btn.el-icon-arrow-left')
 
                     self.human_delay(0.8, 1.4)
                     attempt += 1
@@ -1177,7 +1028,7 @@ class QianguaMcnRankSpider:
             if clicked:
                 logger.info("成功点击预估合作费用排序")
                 self.human_delay(1.0, 2.0)
-                
+
                 # 等待GetMcnBrandList接口响应
                 logger.info("等待GetMcnBrandList接口响应...")
                 wait_start = time.time()
@@ -1194,7 +1045,7 @@ class QianguaMcnRankSpider:
                         elif response_data.get('Code') == 500:
                             logger.warning(f"GetMcnBrandList接口返回错误: {response_data.get('Msg')}")
                     time.sleep(0.5)
-                
+
                 logger.info(f"当前已获取 {len(self.api_data.get('GetMcnBrandList', []))} 条GetMcnBrandList数据")
                 return True
             else:
@@ -1225,33 +1076,33 @@ class QianguaMcnRankSpider:
             # 清空之前可能触发的GetMcnBrandList接口数据
             if 'GetMcnBrandList' in self.api_data:
                 self.api_data['GetMcnBrandList'] = []
-            
+
             # 在指定位置持续滚轮滚动，直到GetMcnBrandList接口出现
             logger.info("移动鼠标到品牌列表位置(931, 575)并滚动，等待接口响应...")
             self.page.mouse.move(931, 575)
             time.sleep(0.5)
-            
+
             max_scroll_attempts = 20  # 最多滚动20次
             scroll_attempt = 0
-            
+
             while scroll_attempt < max_scroll_attempts:
                 # 向下滚动鼠标滚轮
                 self.page.mouse.wheel(0, 300)  # 增大滚动量
                 scroll_attempt += 1
                 logger.info(f"第 {scroll_attempt} 次鼠标滚轮滚动...")
                 time.sleep(1)
-                
+
                 # 检查是否有GetMcnBrandList接口响应
                 if 'GetMcnBrandList' in self.api_data and len(self.api_data['GetMcnBrandList']) > 0:
                     logger.info(f"检测到GetMcnBrandList接口响应，停止鼠标滚轮滚动")
                     break
-            
+
             if scroll_attempt >= max_scroll_attempts:
                 logger.warning("鼠标滚轮滚动达到最大次数，但未检测到接口响应")
 
             # 然后使用鼠标滚轮滚动品牌列表
             logger.info("开始使用鼠标滚轮滚动品fex牌列表...")
-            
+
             # 先获取初始已有的数据条数
             initial_count = self.page.evaluate('''
                 () => {
@@ -1259,7 +1110,7 @@ class QianguaMcnRankSpider:
                 }
             ''')
             logger.info(f"初始已有 {initial_count} 条品牌数据")
-            
+
             prev_count = initial_count
             no_more_data = False
             scroll_count = 0
@@ -1267,10 +1118,10 @@ class QianguaMcnRankSpider:
 
             while prev_count < max_records and not no_more_data:
                 scroll_count += 1
-                
+
                 # 使用鼠标滚轮向下滚动
                 self.page.mouse.wheel(0, 500)  # 增大滚动量
-                
+
                 # 随机等待
                 delay = random.uniform(self.scroll_delay_min, self.scroll_delay_max)
                 logger.info(f"第 {scroll_count} 次鼠标滚轮滚动,等待 {delay:.2f} 秒...")
@@ -1286,16 +1137,17 @@ class QianguaMcnRankSpider:
                 if new_count == prev_count:
                     consecutive_no_change += 1
                     logger.info(f"当前仍为 {new_count} 条数据，连续 {consecutive_no_change} 次无变化")
-                    
+
                     # 连续3次没有变化才认为没有更多数据
                     if consecutive_no_change >= 3:
                         logger.info("连续3次滚动无新数据,停止滚动")
                         no_more_data = True
                 else:
                     consecutive_no_change = 0  # 重置计数器
-                    logger.info(f"当前已加载 {new_count} 条品牌数据 (初始 {initial_count} + 新增 {new_count - initial_count})")
+                    logger.info(
+                        f"当前已加载 {new_count} 条品牌数据 (初始 {initial_count} + 新增 {new_count - initial_count})")
                     prev_count = new_count
-                    
+
                 if prev_count >= max_records:
                     logger.info(f"已达到最大记录数 {max_records},停止加载")
                     break
@@ -1305,7 +1157,7 @@ class QianguaMcnRankSpider:
             logger.info(f"滚动完成,共滚动 {scroll_count} 次,获取 {total_api_count} 次GetMcnBrandList接口数据")
             total_api_count = len(self.api_data.get('GetMcnBrandList', []))
             logger.info(f"滚动完成,共滚动 {scroll_count} 次,获取 {total_api_count} 次GetMcnBrandList接口数据")
-            
+
             final_count = self.page.evaluate('''
                 () => {
                     return document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom').length;
@@ -1317,122 +1169,6 @@ class QianguaMcnRankSpider:
         except Exception as e:
             logger.error(f"滚动加载品牌数据时出错: {str(e)}")
             return 0
-
-    def click_brand_item_and_view(self, index):
-        """点击品牌列表中的某一项并查看详情"""
-        try:
-            logger.info(f"点击第 {index + 1} 个品牌并查看详情...")
-
-            # 清空之前的API数据
-            if 'GetMcnBrandNoteList' in self.api_data:
-                self.api_data['GetMcnBrandNoteList'] = []
-
-            # 点击查看链接 (list-row下第二个div里的col-cell里的div里的a标签)
-            clicked = self.page.evaluate(f'''
-                () => {{
-                    const listItems = document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom');
-                    if (listItems.length > {index}) {{
-                        const item = listItems[{index}];
-                        const listRow = item.querySelector('.list-row');
-                        if (listRow) {{
-                            // 获取list-row下的第二个div
-                            const divs = listRow.querySelectorAll(':scope > div');
-                            if (divs.length >= 2) {{
-                                const secondDiv = divs[1];
-                                const viewLink = secondDiv.querySelector(':scope > div > div > a');
-                                if (viewLink) {{
-                                    viewLink.click();
-                                    console.log('����˲鿴����:', viewLink.textContent);
-                                    return true;
-                                }}
-                            }}
-                        }}
-                    }}
-                    return false;
-                }}
-            ''')
-
-            if not clicked:
-                logger.warning(f"未找到第 {index + 1} 个品牌的查看链接")
-                return False
-
-            logger.info(f"成功点击第 {index + 1} 个品牌的查看链接")
-            self.human_delay(1.5, 2.5)
-
-            # 点击投放报价
-            logger.info("点击投放报价...")
-            price_selector = (
-                ".el-dialog__body "
-                ".index-note-modal.relative-note-list__wrap "
-                ".list-con.scroll-list.qg-scrollo-list.scroll-mode "
-                ".affix-wrapper .c-affix .list-hd > div:nth-child(4) .sort-title"
-            )
-            price_button = self.page.locator(price_selector)
-            try:
-                price_button.wait_for(state="visible", timeout=5000)
-                price_button.click()
-                self.human_delay(1.0, 2.0)
-            except Exception:
-                logger.warning("未找到投放报价按钮")
-                # 按ESC键关闭弹窗
-                self.page.keyboard.press('Escape')
-                self.human_delay(0.8, 1.4)
-                return False
-
-            logger.info("成功点击投放报价")
-            self.human_delay(1.5, 2.5)
-            self.page.wait_for_load_state('networkidle', timeout=10000)
-
-            # 滚动一次加载更多数据
-            logger.info("滚动加载投放报价数据...")
-            note_list_selector = (
-                ".el-dialog__body "
-                ".index-note-modal.relative-note-list__wrap "
-                ".list-con.scroll-list.qg-scrollo-list.scroll-mode "
-                ".list-bd.page-component__scroll"
-            )
-            note_container = self.page.locator(note_list_selector)
-            try:
-                note_container.wait_for(state="visible", timeout=5000)
-                bounding_box = note_container.bounding_box()
-                if bounding_box:
-                    x = bounding_box["x"] + bounding_box["width"] / 2
-                    y = bounding_box["y"] + 10
-                    self.page.mouse.move(x, y)
-                    self.page.wait_for_timeout(500)
-                    self.page.mouse.wheel(0, 800)
-                else:
-                    logger.warning("未获取到投放报价列表 bounding box，改用 evaluate 滚动")
-                    self.page.evaluate('''
-                        () => {
-                            const container = document.querySelector(
-                                '.index-note-modal.relative-note-list__wrap .list-con.scroll-list.qg-scrollo-list.scroll-mode .list-bd.page-component__scroll'
-                            );
-                            if (container) {
-                                container.scrollTop = container.scrollHeight;
-                            }
-                        }
-                    ''')
-            except Exception as e:
-                logger.warning(f"滚动投放报价数据时出错: {e}")
-            self.human_delay(1.0, 2.0)
-
-            # 按一次ESC键返回品牌列表
-            logger.info("按ESC键返回品牌列表...")
-            self.save_note_data_to_db(self.current_organization)
-            self.page.keyboard.press('Escape')
-            self.human_delay(0.8, 1.4)
-
-            return True
-        except Exception as e:
-            logger.error(f"点击第 {index + 1} 个品牌并查看详情时出错: {str(e)}")
-            # 尝试返回
-            try:
-                self.page.keyboard.press('Escape')
-                time.sleep(1)
-            except:
-                pass
-            return False
 
     def process_organization(self, org_name):
         """处理单个机构的数据"""
@@ -1449,14 +1185,22 @@ class QianguaMcnRankSpider:
             # 获取机构列表数量(最多4条)
             mcn_count = self.page.evaluate('''
                 () => {
-                    return Math.min(document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom').length, 4);
+                    return Math.min(document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom').length, 5);
                 }
             ''')
 
-            logger.info(f"找到 {mcn_count} 个机构,将处理前4个")
+            logger.info(f"找到 {mcn_count} 个机构,将处理前5个")
 
             # 循环处理每个机构
-            for mcn_index in range(min(mcn_count, 4)):
+            for mcn_index in range(min(mcn_count, 5)):
+                if org_name == '方片' and mcn_index < 4:
+                    logger.error(f"跳过处理 {org_name} 机构")
+                    mcn_index += 1
+                    continue
+                if org_name == '方片母婴' or org_name == '方片新媒体':
+                    logger.error(f"跳过处理 {org_name} 机构")
+                    mcn_index += 1
+                    continue
                 logger.info(f"处理第 {mcn_index + 1}/{mcn_count} 个机构")
 
                 # 点击机构
@@ -1493,14 +1237,7 @@ class QianguaMcnRankSpider:
                         logger.warning(f"{year_month} 没有加载到品牌数据")
                         continue
 
-                    self.save_brand_data_to_db(org_name)
-
-                    # 循环点击每个品牌
-                    actual_brand_count = min(brand_count, self.max_brand_records)
-                    for brand_index in range(actual_brand_count):
-                        logger.info(f"处理第 {brand_index + 1}/{actual_brand_count} 个品牌")
-                        self.click_brand_item_and_view(brand_index)
-                        time.sleep(2)
+                    self.save_brand_data_to_db(org_name,  year_month)
 
                     # 所有品牌处理完成后,按第二次ESC返回
                     logger.info(f"所有品牌处理完成,按第二次ESC返回...")

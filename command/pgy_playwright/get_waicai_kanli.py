@@ -80,6 +80,7 @@ class WaicaiPGYSpider:
         base_path = get_base_path()
         self.cookie_file = os.path.join(base_path, 'cookies.json')
         self.data_dir = os.path.join(base_path, 'data')
+        self.processed_ids_file = os.path.join(base_path, 'processed_ids.json')
 
         # 确保数据目录存在
         os.makedirs(self.data_dir, exist_ok=True)
@@ -147,8 +148,27 @@ class WaicaiPGYSpider:
                 logger.error("未获取到博主数据")
                 return False
 
+            # 加载已处理的ID列表
+            processed_ids = self._load_processed_ids()
+            logger.info(f"已处理的博主数量: {len(processed_ids)}")
+
+            # 过滤掉已处理的博主
+            new_blogger_list = []
+            for blogger in blogger_list:
+                platform_user_id = blogger.get('platform_user_id')
+                if platform_user_id and platform_user_id not in processed_ids:
+                    new_blogger_list.append(blogger)
+                else:
+                    logger.info(f"跳过已处理的博主: {blogger.get('creator_nickname', 'Unknown')} (ID: {platform_user_id})")
+
+            if not new_blogger_list:
+                logger.info("所有博主都已处理完成，没有新数据需要处理")
+                return True
+
+            logger.info(f"待处理的新博主数量: {len(new_blogger_list)}/{len(blogger_list)}")
+
             # 遍历每个博主数据
-            for idx, blogger in enumerate(blogger_list, 1):
+            for idx, blogger in enumerate(new_blogger_list, 1):
                 try:
                     platform_user_id = blogger.get('platform_user_id')
 
@@ -156,7 +176,7 @@ class WaicaiPGYSpider:
 
 
                     if not pgy_url:
-                        logger.info(f"[{idx}/{len(blogger_list)}] 博主蒲公英链接为空，跳过")
+                        logger.info(f"[{idx}/{len(new_blogger_list)}] 博主蒲公英链接为空，跳过")
                         continue
 
                     # 清空之前的数据
@@ -177,7 +197,7 @@ class WaicaiPGYSpider:
                     }
 
                     logger.info(
-                        f"[{idx}/{len(blogger_list)}] 正在处理博主: {blogger.get('creator_nickname', 'Unknown')}")
+                        f"[{idx}/{len(new_blogger_list)}] 正在处理博主: {blogger.get('creator_nickname', 'Unknown')}")
                     logger.info(f"访问页面: {pgy_url}")
 
                     try:
@@ -190,7 +210,7 @@ class WaicaiPGYSpider:
                         except Exception as net_error:
                             logger.warning(f"等待网络空闲超时: {str(net_error)}")
 
-                        self.common.random_sleep(20, 40)
+                        self.common.random_sleep(20, 30)
 
                     except Exception as e:
                         logger.error(f"访问页面失败: {str(e)}")
@@ -234,10 +254,7 @@ class WaicaiPGYSpider:
                                     self._process_fans_profile(api_data, blogger)
 
                                 elif 'notes_rate' in api_url:
-                                    # 从博主基本信息获取价格
-                                    graphic_price = 0
-                                    video_price = 0
-                                    self._process_notes_rate(api_data, graphic_price, video_price, 'daily', blogger)
+                                    self._process_notes_rate(api_data, blogger, 0, 3, 1, 1)
 
                                 elif 'fans_summary' in api_url:
                                     self._process_fans_summary(api_data, blogger)
@@ -269,7 +286,7 @@ class WaicaiPGYSpider:
                             except Exception as e:
                                 logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-                            self.common.random_sleep(10, 15)
+                            self.common.random_sleep(8, 12)
 
                             # 处理数据摘要API
                             data_summary_copy = dict(self.api_data)
@@ -303,7 +320,7 @@ class WaicaiPGYSpider:
                             except Exception as e:
                                 logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-                            self.common.random_sleep(10, 15)
+                            self.common.random_sleep(8, 12)
 
                             # 处理合作笔记API
                             notes_rate_copy = dict(self.api_data)
@@ -315,10 +332,7 @@ class WaicaiPGYSpider:
                                     if 'notes_rate' in api_url and 'data' in response_data:
                                         api_data = response_data.get('data', {})
                                         if api_data and isinstance(api_data, dict):
-                                            graphic_price = 0
-                                            video_price = 0
-                                            self._process_notes_rate(api_data, graphic_price, video_price, 'coop',
-                                                                      blogger)
+                                            self._process_notes_rate(api_data, blogger, 1, 3, 1, 1)
                                             break
                                 except Exception as e:
                                     logger.warning(f"处理合作笔记API时出错: {str(e)}")
@@ -331,11 +345,13 @@ class WaicaiPGYSpider:
                         sync_result = self.sync_single_record_to_api(self.payload)
                         if sync_result:
                             logger.info(f"✓ 成功同步博主 {blogger.get('creator_nickname', 'Unknown')} 的数据到API")
+                            # 同步成功后，保存已处理的ID
+                            self._save_processed_id(platform_user_id)
                         else:
                             logger.warning(f"✗ 同步博主 {blogger.get('creator_nickname', 'Unknown')} 的数据到API失败")
 
                     else:
-                        logger.warning(f"[{idx}/{len(blogger_list)}] 未获取到API数据")
+                        logger.warning(f"[{idx}/{len(new_blogger_list)}] 未获取到API数据")
 
                 except Exception as e:
                     logger.error(f"处理第 {idx} 个博主时出错: {str(e)}")
@@ -666,6 +682,49 @@ class WaicaiPGYSpider:
                 pass
             return False
 
+    def _load_processed_ids(self):
+        """从文件加载已处理的platform_user_id列表"""
+        try:
+            if os.path.exists(self.processed_ids_file):
+                with open(self.processed_ids_file, 'r', encoding='utf-8') as f:
+                    processed_ids = json.load(f)
+
+                if isinstance(processed_ids, list):
+                    logger.info(f"已加载 {len(processed_ids)} 个已处理的ID")
+                    return set(processed_ids)  # 转换为set以便快速查询
+                else:
+                    logger.warning("processed_ids.json 格式错误，应该是数组格式")
+                    return set()
+            else:
+                logger.info("未找到已处理ID文件，将创建新文件")
+                return set()
+        except Exception as e:
+            logger.error(f"加载已处理ID时出错: {str(e)}")
+            return set()
+
+    def _save_processed_id(self, platform_user_id):
+        """追加保存单个已处理的platform_user_id到文件"""
+        try:
+            # 先加载现有的ID列表
+            processed_ids = list(self._load_processed_ids())
+
+            # 如果ID不在列表中，则添加
+            if platform_user_id not in processed_ids:
+                processed_ids.append(platform_user_id)
+
+                # 保存到文件
+                with open(self.processed_ids_file, 'w', encoding='utf-8') as f:
+                    json.dump(processed_ids, f, indent=2, ensure_ascii=False)
+
+                logger.debug(f"已保存已处理ID: {platform_user_id}")
+                return True
+            else:
+                logger.debug(f"ID {platform_user_id} 已存在于记录中")
+                return False
+        except Exception as e:
+            logger.error(f"保存已处理ID时出错: {str(e)}")
+            return False
+
     def _process_blogger_info(self, data, blogger):
         """处理博主基本信息"""
         try:
@@ -674,57 +733,14 @@ class WaicaiPGYSpider:
                 logger.warning("博主数据为空或格式错误")
                 return
 
-            # 提取数据
-            nickname = data.get('name', '')
-            userId = data.get('userId', '')
-            xhs_id = data.get('redId', '')
-            fans_count = data.get('fansCount', 0)
-            picture_price = data.get('picturePrice', 0)
-            video_price = data.get('videoPrice', 0)
-            like_collect_count = data.get('likeCollectCountInfo', '')
-            region = data.get('location', '')
-            agency_name = self._safe_get_nested(data, ['noteSign', 'name'], "")
-
-            # 处理标签
-            tags = set()
-            content_tags = data.get("contentTags", [])
-            featureTags = data.get("featureTags", [])
-
-            if content_tags and isinstance(content_tags, list):
-                for tag in content_tags:
-                    if isinstance(tag, dict):
-                        taxonomy1 = tag.get("taxonomy1Tag")
-                        taxonomy2 = tag.get("taxonomy2Tag")
-                        if taxonomy1:
-                            tags.add(str(taxonomy1))
-                        if taxonomy2:
-                            tags.add(str(taxonomy2))
-
-            if featureTags and isinstance(featureTags, list):
-                for tag in featureTags:
-                    if tag:
-                        tags.add(str(tag))
-
             # 将数据添加到payload
             blogger_info_index = next(
                 (i for i, item in enumerate(self.payload["apis"]) if item["tb_name"] == "blogger_info"), None)
             if blogger_info_index is not None:
-                payload_data = {
-                    'platform_user_id': blogger.get('platform_user_id', userId),
-                    'name': nickname,
-                    'redId': xhs_id,
-                    'userId': userId,
-                    'fansCount': fans_count,
-                    'picturePrice': picture_price,
-                    'videoPrice': video_price,
-                    'likeCollectCountInfo': like_collect_count,
-                    'location': region,
-                    'agency': agency_name,
-                    'tags': list(tags)
-                }
+                # 克隆数据并添加博主ID
+                payload_data = dict(data)
+                payload_data['platform_user_id'] = blogger['platform_user_id']
                 self.payload["apis"][blogger_info_index]["tb_data"] = [payload_data]
-
-            logger.info(f"博主基本信息处理完成: {nickname}")
 
         except Exception as e:
             logger.error(f"处理博主基本信息时出错: {str(e)}")
@@ -784,8 +800,8 @@ class WaicaiPGYSpider:
             logger.error(f"处理数据摘要时出错: {str(e)}")
             logger.error(f"错误详情: {traceback.format_exc()}")
 
-    def _process_notes_rate(self, api_data, graphic_price, video_price, note_type, blogger):
-        """处理笔记率数据"""
+    def _process_notes_rate(self, api_data, url, business, note_type, date_type, advertise_switch):
+        """处理数据摘要"""
         try:
             if not self._validate_api_data(api_data):
                 logger.warning(f"{note_type}笔记率API数据验证失败")
@@ -795,34 +811,40 @@ class WaicaiPGYSpider:
             if not data or not isinstance(data, dict):
                 logger.warning(f"{note_type}笔记率数据为空或格式错误")
                 return
-
-            # 将数据添加到payload
+            # 将数据添加到payload中
             note_rate_index = next(
                 (i for i, item in enumerate(self.payload["apis"]) if item["tb_name"] == "blogger_note_rate"), None)
             if note_rate_index is not None:
+                # 克隆数据并添加平台用户ID和额外信息
                 payload_data = dict(data)
-                payload_data['platform_user_id'] = blogger.get('platform_user_id')
+                payload_data['platform_user_id'] = url['platform_user_id']
+                payload_data['business'] = business
                 payload_data['note_type'] = note_type
-                payload_data['graphic_price'] = graphic_price
-                payload_data['video_price'] = video_price
+                payload_data['date_type'] = date_type
+                payload_data['advertise_switch'] = advertise_switch
 
-                # 检查是否已存在相同的数据
+                # 检查是否已存在相同的数据，避免重复添加
                 existing_data = self.payload["apis"][note_rate_index]["tb_data"]
                 is_duplicate = any(
                     item.get('platform_user_id') == payload_data['platform_user_id'] and
-                    item.get('note_type') == payload_data['note_type']
+                    item.get('business') == payload_data['business'] and
+                    item.get('note_type') == payload_data['note_type'] and
+                    item.get('date_type') == payload_data['date_type'] and
+                    item.get('advertise_switch') == payload_data['advertise_switch']
                     for item in existing_data
                 )
 
                 if not is_duplicate:
+                    # 只有不重复的数据才追加
                     self.payload["apis"][note_rate_index]["tb_data"].append(payload_data)
-                    logger.debug(f"添加{note_type}笔记率数据")
-
-            logger.info(f"{note_type}笔记率数据处理完成")
+                    logger.debug(
+                        f"添加笔记率数据: business={business}, note_type={note_type}, date_type={date_type}, advertise_switch={advertise_switch}")
+                else:
+                    logger.debug(
+                        f"跳过重复的笔记率数据: business={business}, note_type={note_type}, date_type={date_type}, advertise_switch={advertise_switch}")
 
         except Exception as e:
-            logger.error(f"处理{note_type}笔记率数据时出错: {str(e)}")
-            logger.error(f"错误详情: {traceback.format_exc()}")
+            logger.error(f"处理笔记率数据时出错: {str(e)}")
 
     def _process_fans_summary(self, api_data, blogger):
         """处理粉丝概要数据"""

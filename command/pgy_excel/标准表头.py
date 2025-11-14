@@ -32,34 +32,9 @@ def get_resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
-def load_config():
-    """加载配置文件"""
-    config = configparser.ConfigParser()
-
-    # 尝试多个可能的配置文件路径
-    config_paths = [
-        get_resource_path('WeekAccountUpdate/config.ini'),
-        get_resource_path('../pgy_playwright/config.ini'),
-        'WeekAccountUpdate/config.ini',
-        'config.ini'
-    ]
-
-    config_loaded = False
-    for config_path in config_paths:
-        if os.path.exists(config_path):
-            config.read(config_path, encoding='utf-8')
-            config_loaded = True
-            break
-
-    if not config_loaded:
-        logger.error("未找到配置文件")
-        raise FileNotFoundError("配置文件不存在")
-
-
 class PGYSpider:
     def __init__(self):
         # 加载配置
-        self.config = load_config()
         self.setup_logger()
 
         # 设置cookie和数据目录，支持exe打包

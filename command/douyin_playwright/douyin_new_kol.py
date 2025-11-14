@@ -32,6 +32,7 @@ def get_base_path():
     except Exception:
         return os.path.abspath("../..")
 
+
 class DouYinSpider:
     def __init__(self):
         self.setup_logger()
@@ -82,7 +83,7 @@ class DouYinSpider:
                 self.logger.error("未登录状态，无法抓取数据")
                 return 0
 
-            self.current_kol = {'name': kol_name, 'url': kol_url, 'user_id':star_id}
+            self.current_kol = {'name': kol_name, 'url': kol_url, 'user_id': star_id}
             self.processed_api_responses.clear()
             # 完全重置营销信息，确保数据隔离
             self.marketing_info = {'user_id': star_id}
@@ -127,7 +128,7 @@ class DouYinSpider:
                         self.logger.info("检测到页面已切换到连接用户页面")
                     else:
                         self.logger.info("页面切换状态未知，继续执行")
-                    
+
                     # 等待页面加载完成
                     time.sleep(2)
 
@@ -140,7 +141,7 @@ class DouYinSpider:
 
             # 等待页面有变化（比如URL变化或者元素状态变化）
             self.page.wait_for_timeout(1000)  # 等待1秒
-            
+
             # 鼠标滚轮向下滚动几下，确保页面完全加载
             self.logger.info("向下滚动页面确保内容完全加载...")
             try:
@@ -151,20 +152,20 @@ class DouYinSpider:
                 self.logger.info("页面滚动完成")
             except Exception as e:
                 self.logger.warning(f"页面滚动时出错: {str(e)}")
-            
+
             # 尝试点击粉丝画像按钮
             self.logger.info("开始点击粉丝画像按钮...")
-            
+
             # 等待页面完全加载，确保所有元素都已渲染
             self.logger.info("等待页面元素完全加载...")
             try:
                 self.page.wait_for_load_state('networkidle', timeout=5000)
             except Exception as e:
                 self.logger.warning(f"等待页面网络空闲时出错: {str(e)}")
-            
+
             # 额外等待一段时间确保动态内容加载完成
             time.sleep(2)
-            
+
             # 尝试多种选择器来查找粉丝画像按钮
             fan_portrait_selectors = [
                 "text=粉丝画像",
@@ -176,17 +177,17 @@ class DouYinSpider:
                 "[class*='checkbox']:has-text('粉丝画像')",
                 "[class*='button']:has-text('粉丝画像')"
             ]
-            
+
             fan_portrait_button = None
             for i, selector in enumerate(fan_portrait_selectors):
                 try:
-                    self.logger.info(f"尝试选择器 {i+1}/{len(fan_portrait_selectors)}: {selector}")
-                    
+                    self.logger.info(f"尝试选择器 {i + 1}/{len(fan_portrait_selectors)}: {selector}")
+
                     # 检查元素是否存在
                     element = self.page.locator(selector).first
                     count = element.count()
                     self.logger.info(f"选择器 '{selector}' 找到 {count} 个元素")
-                    
+
                     if count > 0:
                         # 检查元素是否可见
                         if element.is_visible(timeout=3000):
@@ -197,11 +198,11 @@ class DouYinSpider:
                             self.logger.info(f"元素存在但不可见，选择器: {selector}")
                     else:
                         self.logger.info(f"未找到元素，选择器: {selector}")
-                        
+
                 except Exception as e:
                     self.logger.info(f"选择器 {selector} 检查出错: {str(e)}")
                     continue
-            
+
             # 如果还是没找到，尝试更通用的方法
             if not fan_portrait_button:
                 self.logger.info("尝试更通用的查找方法...")
@@ -209,20 +210,20 @@ class DouYinSpider:
                     # 查找所有包含"粉丝画像"文本的元素
                     all_elements = self.page.locator("text=粉丝画像").all()
                     self.logger.info(f"找到 {len(all_elements)} 个包含'粉丝画像'文本的元素")
-                    
+
                     for i, element in enumerate(all_elements):
                         try:
                             if element.is_visible(timeout=1000):
                                 fan_portrait_button = element
-                                self.logger.info(f"✅ 通过通用方法找到粉丝画像按钮，元素 {i+1}")
+                                self.logger.info(f"✅ 通过通用方法找到粉丝画像按钮，元素 {i + 1}")
                                 break
                         except Exception as e:
-                            self.logger.info(f"元素 {i+1} 不可见: {str(e)}")
+                            self.logger.info(f"元素 {i + 1} 不可见: {str(e)}")
                             continue
-                            
+
                 except Exception as e:
                     self.logger.warning(f"通用查找方法出错: {str(e)}")
-            
+
             if fan_portrait_button:
                 # 点击前等待一下确保元素稳定
                 time.sleep(0.5)
@@ -233,7 +234,7 @@ class DouYinSpider:
                 try:
                     # 等待页面有变化
                     self.page.wait_for_timeout(1000)  # 等待1秒
-                    
+
                     # 等待API请求完成 - 增加等待时间
                     self.logger.info("等待粉丝画像API请求完成...")
 
@@ -242,15 +243,16 @@ class DouYinSpider:
                     # 即使检查失败也继续执行
             else:
                 self.logger.warning(f"未找到粉丝画像按钮，KOL {kol_name} 可能没有粉丝画像数据，但继续尝试获取其他数据")
-                
+
                 # 保存页面截图用于调试
                 try:
-                    screenshot_path = os.path.join(self.data_dir, f"fan_portrait_not_found_{kol_name}_{int(time.time())}.png")
+                    screenshot_path = os.path.join(self.data_dir,
+                                                   f"fan_portrait_not_found_{kol_name}_{int(time.time())}.png")
                     self.page.screenshot(path=screenshot_path)
                     self.logger.info(f"已保存页面截图用于调试: {screenshot_path}")
                 except Exception as e:
                     self.logger.warning(f"保存页面截图失败: {str(e)}")
-                
+
                 # 即使没有粉丝画像按钮，也继续处理其他API数据
 
             # 等待API数据 - 简化检测方式
@@ -283,14 +285,12 @@ class DouYinSpider:
             self.logger.error(f"抓取KOL {kol_name} 笔记时出错: {str(e)}")
             raise
 
-
-
     def _save_all_kol_data_to_api(self, user_id: str):
         """统一保存所有收集到的API数据到远程接口"""
         try:
             self.logger.info(f"开始统一保存所有API数据到远程接口，用户ID: {user_id}")
             self.logger.info(f"当前kol_api_data内容: {self.kol_api_data}")
-            
+
             # 构建请求数据
             current_timestamp = int(time.time())
             douyin_data = {
@@ -342,7 +342,8 @@ class DouYinSpider:
             if self.kol_api_data.get('audience_distribution'):
                 self.logger.info(f"添加audience_distribution字段")
                 try:
-                    audience_distribution_data = json.loads(self.kol_api_data['audience_distribution'].get('audience_distribution', '[]'))
+                    audience_distribution_data = json.loads(
+                        self.kol_api_data['audience_distribution'].get('audience_distribution', '[]'))
                     douyin_data['audience_distribution'] = audience_distribution_data
                 except (json.JSONDecodeError, TypeError):
                     douyin_data['audience_distribution'] = []
@@ -378,7 +379,8 @@ class DouYinSpider:
             if self.kol_api_data.get('author_base_info'):
                 self.logger.info(f"添加作者基本信息字段")
                 try:
-                    author_base_info_data = json.loads(self.kol_api_data['author_base_info'].get('author_base_info', '{}'))
+                    author_base_info_data = json.loads(
+                        self.kol_api_data['author_base_info'].get('author_base_info', '{}'))
                     douyin_data['author_base_info'] = author_base_info_data
                 except (json.JSONDecodeError, TypeError):
                     douyin_data['author_base_info'] = {}
@@ -402,7 +404,7 @@ class DouYinSpider:
             }
 
             response = requests.post(api_url, json=request_data, headers=headers, timeout=30)
-            
+
             if response.status_code == 200:
                 response_data = response.json()
                 self.logger.info(f"✅ 数据成功发送到API接口，响应: {response_data}")
@@ -433,10 +435,10 @@ class DouYinSpider:
             if self.marketing_info.get('user_id') != current_user_id:
                 self.logger.warning(f"数据不匹配：期望 {current_user_id}，实际 {self.marketing_info.get('user_id')}")
                 return
-            
+
             # 提取价格信息
             price_info = response_data.get('price_info', [])
-            
+
             # 将JSON对象转换为字符串
             try:
                 industry_tags_json = json.dumps(response_data.get('industry_tags', []), ensure_ascii=False)
@@ -473,10 +475,10 @@ class DouYinSpider:
             if self.marketing_info.get('user_id') != current_user_id:
                 self.logger.warning(f"数据不匹配：期望 {current_user_id}，实际 {self.marketing_info.get('user_id')}")
                 return
-            
+
             # 提取链接信息
             douyin_link = f"https://www.xingtu.cn/ad/creator/author-homepage/douyin-video/{current_user_id}"
-            
+
             # 将整个响应数据转换为JSON字符串
             try:
                 author_base_info_json = json.dumps(response_data, ensure_ascii=False)
@@ -628,12 +630,11 @@ class DouYinSpider:
             self.logger.error(f"处理商业传播信息数据时出错: {str(e)}")
             self.logger.error(f"错误详情: {traceback.format_exc()}")
 
-
     def _process_author_spread_info(self, response_data: Dict[str, Any], user_id: str):
         """处理作者传播信息API数据，保存整个响应对象为JSON格式"""
         try:
             self.logger.info(f"开始处理传播信息API数据，用户ID: {user_id}")
-            
+
             if not response_data:
                 self.logger.error("作者传播信息API响应数据为空")
                 return
@@ -643,7 +644,7 @@ class DouYinSpider:
             # 将整个响应数据转换为JSON字符串
             try:
                 spread_info_json = json.dumps(response_data, ensure_ascii=False)
-                
+
                 # 存储到kol_api_data中，等待统一保存
                 self.kol_api_data['spread_info'] = {
                     'spread_info': spread_info_json
@@ -663,7 +664,7 @@ class DouYinSpider:
         """处理作者受众分布API数据，保存distributions字段为JSON格式"""
         try:
             self.logger.info(f"开始处理受众分布API数据，用户ID: {user_id}")
-            
+
             if not response_data:
                 self.logger.error("作者受众分布API响应数据为空")
                 return
@@ -679,7 +680,7 @@ class DouYinSpider:
             # 将distributions转换为JSON字符串
             try:
                 distributions_json = json.dumps(distributions, ensure_ascii=False)
-                
+
                 # 存储到kol_api_data中，等待统一保存
                 self.kol_api_data['audience_distribution'] = {
                     'audience_distribution': distributions_json
@@ -699,7 +700,7 @@ class DouYinSpider:
         """处理作者商业种子基础信息API数据，保存avg_a3_incr_cnt字段"""
         try:
             self.logger.info(f"开始处理商业种子基础信息API数据，用户ID: {user_id}")
-            
+
             if not response_data:
                 self.logger.error("作者商业种子基础信息API响应数据为空")
                 return
@@ -720,8 +721,6 @@ class DouYinSpider:
         except Exception as e:
             self.logger.error(f"处理商业种子基础信息数据时出错: {str(e)}")
             self.logger.error(f"错误详情: {traceback.format_exc()}")
-
-
 
     def setup_logger(self):
         """设置日志配置，支持exe打包"""
@@ -798,7 +797,7 @@ class DouYinSpider:
 
                 # 检查是否存在用户头像元素
                 self.logger.info("验证Cookie是否有效...")
-                
+
                 login_detected = False
 
                 try:
@@ -812,7 +811,7 @@ class DouYinSpider:
                             login_detected = True
                 except Exception as e:
                     self.logger.debug(f"选择器 '{".user-avatar"}' 检查出错: {str(e)}")
-                
+
                 # 更新登录状态
                 if login_detected:
                     self.is_logged_in = True
@@ -852,22 +851,22 @@ class DouYinSpider:
                 self.common.random_sleep(20, 30)
                 # 尝试多个可能的选择器
                 selectors = [
-                    ".text-avatar",           # 抖音头像
-                    ".user-avatar",           # 通用头像
+                    ".text-avatar",  # 抖音头像
+                    ".user-avatar",  # 通用头像
                 ]
-                
+
                 # 设置最大等待时间(5分钟)
                 max_wait_time = 300  # 秒
                 start_time = time.time()
                 login_detected = False
-                
+
                 # 循环检查直到找到元素或超时
                 while time.time() - start_time < max_wait_time:
                     # 每30秒提示一次等待状态
                     elapsed_time = int(time.time() - start_time)
                     if elapsed_time % 30 == 0 and elapsed_time > 0:
                         self.logger.info(f"⏳ 等待登录中... 已等待 {elapsed_time} 秒")
-                    
+
                     # 尝试每个选择器
                     for selector in selectors:
                         try:
@@ -881,22 +880,21 @@ class DouYinSpider:
                         except Exception as e:
                             # 忽略错误，继续尝试下一个选择器
                             pass
-                    
+
                     # 如果找到登录标识，退出循环
                     if login_detected:
                         break
-                    
-                    
+
                     # 等待一小段时间再检查
                     time.sleep(2)
-                
+
                 # 检查是否登录成功
                 if login_detected:
                     self.is_logged_in = True
-                    
+
                     # 登录成功后保存Cookie
                     self._save_cookies()
-                    
+
                     self.logger.info("🎉 登录成功！已保存Cookie")
                     return True
                 else:
@@ -963,14 +961,14 @@ class DouYinSpider:
                 base_resp = response_data.get('base_resp', {})
                 status_code = base_resp.get('status_code')
                 status_message = base_resp.get('status_message', '')
-                
+
                 if status_code == 10005:
                     self.logger.warning(f"API返回登录失效: {status_message}, URL: {url}")
                     return True
                 elif status_code != 0 and status_code is not None:
                     self.logger.warning(f"API返回错误状态: {status_code} - {status_message}, URL: {url}")
                     return True
-            
+
             return False  # 状态正常，可以继续处理
         except Exception as e:
             self.logger.error(f"检查API响应状态时出错: {str(e)}")
@@ -1004,7 +1002,6 @@ class DouYinSpider:
             # 如果不是目标API，直接返回（不打印任何信息）
             if not matched_api:
                 return
-
 
             # 验证当前是否有正在处理的用户
             if not self.current_kol or not self.current_kol.get('user_id'):
@@ -1310,20 +1307,20 @@ def main():
     print("=== 抖音KOL数据抓取程序启动（无限循环模式）===")
     print("程序将持续运行，每轮处理完成后等待5分钟再继续...")
     print("按 Ctrl+C 可以停止程序")
-    
+
     while True:
         try:
             # 执行单次爬虫任务
             success = run_spider_task()
-            
+
             if success:
                 print("✅ 本轮任务执行成功")
             else:
                 print("⚠️ 本轮任务执行失败，将在5分钟后重试")
-            
+
             print("等待5分钟后继续下一轮查询...")
             time.sleep(300)  # 等待5分钟 = 300秒
-            
+
         except KeyboardInterrupt:
             print("⚠️ 用户手动中断程序")
             break
@@ -1333,7 +1330,7 @@ def main():
             print("发生错误，等待5分钟后重试...")
             time.sleep(300)  # 等待5分钟 = 300秒
             continue  # 继续下一次循环
-    
+
     print("程序已停止")
 
 

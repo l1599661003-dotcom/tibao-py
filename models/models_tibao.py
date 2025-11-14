@@ -575,15 +575,23 @@ class TrainingBloggerDetailsPeizhi(Base):
 class KolFangpianPrice(Base):
     __tablename__ = 'kol_fangpian_price'
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    kol_id = Column(String(255))
-    kol_name = Column(String(255))
-    redId = Column(String(255))
-    picture_price = Column(String(255))
-    video_price = Column(Integer)
-    currentLevel = Column(Integer)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    kol_id = Column(String(255), nullable=True, comment='KOL唯一ID')
+    redId = Column(String(255), nullable=True, comment='小红书ID')
+    kol_name = Column(String(255), nullable=True, comment='KOL名称')
+    picture_price = Column(Integer, nullable=True, comment='图文报价')
+    video_price = Column(Integer, nullable=True, comment='视频报价')
+    currentLevel = Column(Integer, nullable=True, comment='当前等级')
     created_time = Column(DateTime, default=datetime.now, comment='创建时间')
     updated_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+    kol_fans = Column(String(255), nullable=True, comment='粉丝数量')
+    kol_gender = Column(String(10), nullable=True, comment='性别')
+    kol_location = Column(String(255), nullable=True, comment='地区')
+    xhs_link = Column(String(255), nullable=True, comment='小红书链接')
+    pgy_link = Column(String(255), nullable=True, comment='蒲公英链接')
+    kol_tag = Column(String(255), nullable=True, comment='KOL标签')
+    kol_like = Column(String(255), nullable=True, comment='点赞数')
+    mcn_name = Column(String(255), nullable=True, comment='点赞数')
 
 class KolMediaAccountsConfig(Base):
     __tablename__ = 'kol_media_accounts_config'
@@ -1660,3 +1668,50 @@ class BaokuanLink(Base):
     message = Column(Text)
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
+
+class CreatorBusinessOut(Base):
+    __tablename__ = 'fp_creator_business_out'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    platform_user_id = Column(String(255), nullable=True, comment='KOL唯一ID')
+    creator_mcn = Column(Integer, nullable=True, comment='博主机构')
+    sign_status = Column(Integer, nullable=True, comment='博主机构')
+    creator_nickname = Column(String(255), nullable=True, comment='KOL名称')
+    picture_price = Column(Integer, nullable=True, comment='图文报价')
+    video_price = Column(Integer, nullable=True, comment='视频报价')
+    fans_count = Column(String(255), nullable=True, comment='粉丝数量')
+    like_collect_count = Column(String(255), nullable=True, comment='粉丝数量')
+    gender = Column(String(10), nullable=True, comment='性别')
+    location = Column(String(255), nullable=True, comment='地区')
+    content_tags = Column(String(255), nullable=True, comment='KOL标签')
+
+class FpCreatorFansSummary(Base):
+    """
+    博主粉丝汇总数据表 (fp_creator_fans_summary)
+    """
+    __tablename__ = 'fp_creator_fans_summary'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='主键ID')
+    creator_id = Column(BigInteger, nullable=True, comment='博主id')
+    platform_user_id = Column(String(32), nullable=True, comment='平台user_id')
+
+    fans_increase_num = Column(Integer, nullable=True, comment='粉丝增量')
+    fans_growth_rate = Column(DECIMAL(10, 2), nullable=True, comment='粉丝量变化幅度')
+    active_fans_rate = Column(DECIMAL(10, 2), nullable=True, comment='活跃粉丝占比')
+    read_fans_rate = Column(DECIMAL(10, 2), nullable=True, comment='阅读粉丝占比')
+    engage_fans_rate = Column(DECIMAL(10, 2), nullable=True, comment='互动粉丝占比')
+    pay_fans_user_rate_30d = Column(DECIMAL(10, 2), nullable=True, comment='下单粉丝占比')
+
+    fans_growth_beyond_rate = Column(DECIMAL(10, 2), nullable=True, comment='粉丝量增幅同类比率')
+    active_fans_beyond_rate = Column(DECIMAL(10, 2), nullable=True, comment='活跃粉丝同类比率')
+    read_fans_beyond_rate = Column(DECIMAL(10, 2), nullable=True, comment='阅读粉丝同类比率')
+    engage_fans_beyond_rate = Column(DECIMAL(10, 2), nullable=True, comment='互动粉丝同类比率')
+
+    pay_fans_user_num_30d = Column(Integer, nullable=True, comment='30天下单粉丝数量')
+    read_fans_in_30 = Column(Integer, nullable=True, comment='阅读粉丝数量30天内')
+    fans_num = Column(Integer, nullable=True, comment='粉丝数量')
+    engage_fans_l30 = Column(Integer, nullable=True, comment='30天内互动粉丝数量')
+    active_fans_l28 = Column(Integer, nullable=True, comment='30天内活跃粉丝数量')
+
+    create_time = Column(Integer, nullable=True, comment='创建时间')
+    update_time = Column(Integer, nullable=True, comment='更新时间')

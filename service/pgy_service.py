@@ -7,9 +7,56 @@ import requests
 
 headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    "cookie": 'a1=19918aa122a4aiicm59fhz57ovnd0oo438xblh8ws50000173718; webId=0b1228fa555218955d9ec8a20123a6c3; customerClientId=439504990393203; x-user-id-pgy.xiaohongshu.com=65da95910000000005031083; solar.beaker.session.id=AT-68c517560298324197867522ozlmbsv8mfcuioms; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c517560298324197867522ozlmbsv8mfcuioms; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c517560298324197867522ozlmbsv8mfcuioms; xsecappid=ratlin; acw_tc=0a00076417606091261846932edf90693d62a7e997ed72617c6053ee4eb67d; loadts=1760609872788',
+    "cookie": 'xsecappid=ratlin; a1=19a5cf26ee5w63uq36ju611dmouuigy3j2lg7yn9150000461147; webId=2c33a1c119c2e7c58cc5d63033e88400; customer-sso-sid=68c517569862889949167622gboyr7r07peq08kz; customerClientId=762272075365012; solar.beaker.session.id=AT-68c517569862889949118474uwsjagvx5hgxton8; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c517569862889949118474uwsjagvx5hgxton8; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c517569862889949118474uwsjagvx5hgxton8; loadts=1762496090249; acw_tc=0a0d0bc717624960901596873e1e85accb054ddfc65945d4d9d6267172e5c4',
     'Accept': 'application/json, text/javascript, */*; q=0.01',
     'Accept-Encoding': 'gzip, deflate, br',
+}
+
+headers1 = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    "cookie": 'a1=19882f48bcap04qq1r777p9ggafrdrroz4abocygo50000339517; webId=e7111fec356dc781ca1d14d236afda9a; customerClientId=016216997022661; abRequestId=e7111fec356dc781ca1d14d236afda9a; x-user-id-creator.xiaohongshu.com=634cc30badd08a00019ee4e3; gid=yjYSKK8dd0uiyjYYJi4YD4SvS0U84AAyFWWW0klUjkk0iD28FfFFll888qqj2yW8DY2KKijK; x-user-id-ad-market.xiaohongshu.com=67bbea69000000000d009ec6; access-token-ad-market.xiaohongshu.com=customer.ad_market.AT-68c517561719769394855947z3wtukxckssgow61; web_session=0400698efe0fc8579efeac34ce3a4bbb01a2bd; customer-sso-sid=68c517568811894271950853phdjccj3sgroalhn; x-user-id-pgy.xiaohongshu.com=68fb0f1c1558000000000001; solar.beaker.session.id=AT-68c517569793964314001413gtpd0jlij5tprk24; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c517569793964314001413gtpd0jlij5tprk24; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c517569793964314001413gtpd0jlij5tprk24; webBuild=4.84.4; xsecappid=ratlin; acw_tc=0a422b7a17625225228367977e4b55ef4bd6ea5a352e0eedb0de4305d22287; loadts=1762523551948',
+    'Accept': 'application/json, text/javascript, */*; q=0.01',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Referer': 'https://pgy.xiaohongshu.com/',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Origin': 'https://pgy.xiaohongshu.com',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+    'Authorization': '',
+    'Sec-Fetch-Site': 'same-origin',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Ch-Ua': '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'X-S': 'ZBOUs21LsYZBO6TW1g5GsiZ6sj9bOl5l16MG12OvsBT3',
+    'X-S-Common': '2UQAPsHC+aIjqArjwjHjNsQhPsHCH0rjNsQhPaHCH0c1PahFHjIj2eHjwjQgynEDJ74AHjIj2ePjwjQUGgzVynhTq9YSJBIjNsQh+sHCH0Z1PshlPeHEHjIj2eLjwjHlw/WhPfGFwBQ0GgZI+oblPgH7+A4Iwn4dGn8U8oQUJ7iFGnQ6G7SdJALIPeZIPAPE+/r7HjIj2eGjwjHjNsQh+UHCHjHVHdWhH0ija/PhqDYD87+xJ7mdag8Sq9zn494QcUT6aLpPJLQy+nLApd4G/B4BprShLA+jqg4bqD8S8gYDPBp3Jf+m2DMBnnEl4BYQyrkSL98+zrTM4bQQPFTAnnRUpFYc4r4UGSGILeSg8DSkN9pgGA8SngbF2pbmqbmQPA4Sy9Ma+SbPtApQy/8A8BES8p+fqpSHqg4VPdbF+LQmzrQQ2sTczFzkN7+n4BTQ2BzA2op7q0zl4BSQyopYaLLA8/+Pp0mQPM8LaLP78/mM4BIUcLzTqFl98Lz/a7+/LoqMaLp9q9Sn4rkOqgqhcdp78SmI8BpLzS4OagWFprSk4/8yLo4ULopF+LS9JBbPGf4AP7bF2rSh8gPlpd4HanTMJLS3agSSyf4AnaRgpB4S+9p/qgzSNFc7qFz0qBSI8nzSngQr4rSe+fprpdqUaLpwqM+l4Bl1Jb+M/fkn4rS9J9p3qgcAGMi7qM86+B4Qzp+EanYbaDW7/bpQ2BMc/7kTJFSkGMYSLo4Bag8kcAQsPo+r204A2b8F8rS9+fpD+A4SnnkMtFSk+nL9p9Qr/db7yDSiadPAJ9pA+Dz98pzc4rE0p/8Szop7+LS9nnE0NFbS8ob7yrls8g+fqg46a/+VaFShJnlAqgzAGpm72g+AaBQNze4A8rQDq9TM4BpQynRS8sRm8/+0JrMQzLRS8BQ9qM86zpQQy9pSpb8F/LS3zBzF4g4I/7b7cFDAafpL4gzBanVAq9Sl4B8Qy/+SpMm7zDkl4FIh4gztaL+3+LSe+BEc8dknadiA8/bM49YQyBYoanVI8nzM49RynfTFcSLMqM4mLLzQyF4PadbFa9bl47pQ4fzS+S8F2bbIa9LAaLbSPLlCqDSbad+3cDRS+Sm7NMmn4BEQ2B4ALM8FnrSbPo+hzdkoa/+tqFcIa7PILoqAagGA8/+l4BkzGLlYanSjJLShafpLG9zAPFr7qFzy+9pxqgqUaLL3NFS9pM+Pqg4wagYH+DSkP9p/G9lLaFzt8nkl4FTQy7QI/ob7y7zP/9p3n/pAngpFJdkM4eQQP7bpaLpb+oQc4sTz4g4FagY6qAmCPBL9qg4oG7pFJLSb//zypdcIagYBc9F6nDkQy/+AnncIqM4U4fpDqg4Lq7pFyLDAarpQy/pAydbF2LSe+9L98BM0anY+4DuItFzQzpQDaLpm8n8n474opdcAJM8FwrSha/+QzLbAP/mO8nTn4FpIqD8Fag8PJDTM4B+ApdzUagYl+LShLg+QypD9aLpN8nSr8gP9+AYB4b87zFSeLBSIqg4lJ7b7pLSb+9ph8opOanSBzfr7+fp/pdzVGS8FJnpVarYyJDlhanTTysRl47SQy/pAPb48aDS3L7S6Lo49anTat7zM4b+sLozTanYQyDS9pepQyokwq7b7LDSkp0QQzg8Ay7p74npg/LpQyr86ag8Oq7Y1+7+3pd4fag83pDSbGML6G7Q9aL+CpezmqdkQz/8Ay94w8p4l49pQz/+AyMmF4FSbpA+QznpApdb7PFSbzpz7Lo41anYOqMSyzAz1pdzVqSmFaFS9N9p8qgz6anY9qFzI2d8QzLTALFMOqAbc4BMz2d8A8S8749QUad+kLozoagWIq7YV+npDLozzaLpgcFSkwsTjLo4t4r8baUHVHdWEH0ilPeLF+/DF+eqMNsQhP/Zjw0ZVHdWlPaHCHflk4BLjKc==',
+    'X-T': str(int(time.time() * 1000))
+}
+
+headers2 = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
+    "cookie": 'a1=19882f48bcap04qq1r777p9ggafrdrroz4abocygo50000339517; webId=e7111fec356dc781ca1d14d236afda9a; customerClientId=016216997022661; abRequestId=e7111fec356dc781ca1d14d236afda9a; x-user-id-creator.xiaohongshu.com=634cc30badd08a00019ee4e3; gid=yjYSKK8dd0uiyjYYJi4YD4SvS0U84AAyFWWW0klUjkk0iD28FfFFll888qqj2yW8DY2KKijK; x-user-id-ad-market.xiaohongshu.com=67bbea69000000000d009ec6; access-token-ad-market.xiaohongshu.com=customer.ad_market.AT-68c517561719769394855947z3wtukxckssgow61; web_session=0400698efe0fc8579efeac34ce3a4bbb01a2bd; customer-sso-sid=68c517568811894271950853phdjccj3sgroalhn; x-user-id-pgy.xiaohongshu.com=68fb0f1c1558000000000001; solar.beaker.session.id=AT-68c517569793964314001413gtpd0jlij5tprk24; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c517569793964314001413gtpd0jlij5tprk24; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c517569793964314001413gtpd0jlij5tprk24; webBuild=4.84.4; xsecappid=ratlin; acw_tc=0a422b7a17625225228367977e4b55ef4bd6ea5a352e0eedb0de4305d22287; loadts=1762523551948',
+    'Accept': 'application/json, text/javascript, */*; q=0.01',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Origin': 'https://pgy.xiaohongshu.com',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Cache-Control': 'no-cache',
+    'Authorization': '',
+    'Pragma': 'no-cache',
+    'priority': 'u=1, i',
+    'Referer': 'https://pgy.xiaohongshu.com/',
+    'Sec-Ch-Ua': '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin',
+    'X-S': 'OjVBZgZksiFK16sbsB5W1ia60gVkOj9G0jwB0YTCslA3',
+    'X-S-Common': '2UQAPsHC+aIjqArjwjHjNsQhPsHCH0rjNsQhPaHCH0c1PahFHjIj2eHjwjQgynEDJ74AHjIj2ePjwjQUGgzVynhTq9YSJBIjNsQh+sHCH0Z1PshlPeHEHjIj2eLjwjHlw/WhPfGFwBQ0GgZI+oblPgH7+A4Iwn4dGn8U8oQUJ7iFGnQ6G7SdJALIPeZIPAPE+/r7HjIj2eGjwjHjNsQh+UHCHjHVHdWhH0ija/PhqDYD87+xJ7mdag8Sq9zn494QcUT6aLpPJLQy+nLApd4G/B4BprShLA+jqg4bqD8S8gYDPBp3Jf+m2DMBnnEl4BYQyrkSL98+zrTM4bQQPFTAnnRUpFYc4r4UGSGILeSg8DSkN9pgGA8SngbF2pbmqbmQPA4Sy9Ma+SbPtApQy/8A8BES8p+fqpSHqg4VPdbF+LQmzrQQ2sTczFzkN7+n4BTQ2BzA2op7q0zl4BSQyopYaLLA8/+Pp0mQPM8LaLP78/mM4BIUcLzTqFl98Lz/a7+/LoqMaLp9q9Sn4rkOqgqhcdp78SmI8BpLzS4OagWFprSk4/8yLo4ULopF+LS9JBbPGf4AP7bF2rSh8gPlpd4HanTMJLS3agSSyf4AnaRgpB4S+9p/qgzSNFc7qFz0qBSI8nzSngQr4rSe+fprpdqUaLpwqM+l4Bl1Jb+M/fkn4rS9J9p3qgcAGMi7qM86+B4Qzp+EanYbaDW7/bpQ2BMc/7kTJFSkGMYSLo4Bag8kcAQsPo+r204A2b8F8rS9+fpD+A4SnnkMtFSk+nL9p9Qr/db7yDSiadPAJ9pA+Dz98pzc4rE0p/8Szop7+LS9nnE0NFbS8ob7yrlfad+rpd4Aa/+aGLShJnlAqgzAGpm72g+AaBQNze4A8rQDq9TM4BpQynRS8sRm8/+0JrMQzLRS8BQ9qM86zpQQy9pSpb8F/LS3zBzF4g4I/7b7cFDAafpL4gzBanVAq9Sl4B8Qy/+SpMm7zDkl4FIh4gztaL+3+LSe+BEc8dknadiA8/bM49YQyBYoanVI8nzM49RUJBMFNFrI8nkxqe8QyF4cz7pFa9Rl4A+QPFRS2obFySbP+npkGFbAP7mi4FSicgPAcDRAP7pFq7+M4sTQyURAzbmFPFSb8o+n8SbtanSmq9kA87+/Lo4fag8O8nTl4o8cPrq3anSa8LShafp3JemAPppmqM+8PBpxLo46anYTnLS9G9b0Loq3a/+lPLS3/9pnpMSTqnzw8nzn4M4QyFI6G7p7LFR+89p/2d8ApbmFGjRc4BpQ2b8eaLL3Lo+n4sTHLo4AagWIqM48afpnLoqF87pFNFSiweYspdzpagY0qBRQnfEQyLRAp94DqM+dafL9pd4BcdbFnrShnS+Qy9RALM8F/FSeJ9LA80Y6aLpCzrEpwr+QysTBaLpm8n8M474oqgze8gpFGLSk4pkQzLEAPMLM8pzc49l0LFznaL+g40Yc4rTj4gzwagYnPrDApBRQy9QeanYw8nSI/7+LqeW7JMm7PDS9zSL6Lo4zndb7pFSb89L9cS83anTywrl6N9px4gzGcS8F+BQgLrkS+9SkanSbpaRl4FEQyFEAPgkCwLSkLgmyqg4BanV32Smn4b4yqgzPaLprnLSenLMQc7kH/7p74DS3/sRQz/+A2ob7PBpTtFbQyr81aL+9q9zDJ7+x4g4aag8IJrSbpSYP2S4eaL+acnbg4LYQyrbA+f4D8gYc498Qz/4AP7bFaFSiqpmQ408AP7p7PrSbJpH3qg4NanW6qMD6LBTPqgc9LpmF+rSb+fp8pdz7anY6qM4UpBYQyo8ApFztqAbM4Bbwcg8A8db7yoQ/PoP9qgzta/+9qA+Vafpn4gzFag8PnLSkL9+s4g4dtFS/GFSe89p8pAFRHjIj2eDjw0qMweWAP/rUwaIj2erIH0iINsQhP/rjwjQVygzSHdF=',
+    'X-T': '1762523552378'
 }
 
 # 获取蒲公英收件箱信息
@@ -209,8 +256,8 @@ def get_blogger_info(user_id, header=None):
             header = headers
         url = f"https://pgy.xiaohongshu.com/api/solar/cooperator/user/blogger/{user_id}"
         response = requests.get(url, headers=header, verify=False, timeout=30)
-        response.raise_for_status()
         data = response.json()
+        print(data)
 
         if data.get("code") == 0 and data.get("success"):
             result = data.get("data", {})
@@ -255,13 +302,11 @@ def get_notes_detail(user_id, header=None):
     """
     try:
         if header is None:
-            header = headers
-        # url = f"https://pgy.xiaohongshu.com/api/solar/kol/data_v2/notes_detail?advertiseSwitch=1&orderType=1&pageNumber=1&pageSize=999&userId={user_id}&noteType=4&isThirdPlatform=0"
-        url = f"https://pgy.xiaohongshu.com/api/solar/cooperator/user/blogger/{user_id}"
+            header = headers1
+        url = f"https://pgy.xiaohongshu.com/api/solar/kol/data_v2/notes_detail?advertiseSwitch=1&orderType=1&pageNumber=1&pageSize=8&userId={user_id}&noteType=4&isThirdPlatform=0"
         response = requests.get(url, headers=header, verify=False, timeout=30)
-        print(response.json())
-        response.raise_for_status()
         data = response.json()
+        print(data)
         if data.get("code") == 0 and data.get("success"):
             result = data.get("data", {}).get('list', [])
             return result
@@ -280,10 +325,9 @@ def get_data_summary(user_id, business=0, header=None):
     """
     try:
         if header is None:
-            header = headers
+            header = headers2
         url = f"https://pgy.xiaohongshu.com/api/pgy/kol/data/data_summary?userId={user_id}&business={business}"
         response = requests.get(url, headers=header, verify=False, timeout=30)
-        response.raise_for_status()
         data = response.json()
         print(response.json())
 
@@ -309,8 +353,8 @@ def get_notes_rate(user_id, business, noteType, dateType, advertiseSwitch=1, hea
             header = headers
         url = f"https://pgy.xiaohongshu.com/api/solar/kol/data_v3/notes_rate?userId={user_id}&business={business}&noteType={noteType}&dateType={dateType}&advertiseSwitch={advertiseSwitch}"
         response = requests.get(url, headers=header, verify=False, timeout=30)
-        response.raise_for_status()
         data = response.json()
+        print(data)
 
         if data.get("code") == 0 and data.get("success"):
             result = data.get("data", {})

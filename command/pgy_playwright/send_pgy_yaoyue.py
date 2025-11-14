@@ -395,22 +395,22 @@ class PGYSpider:
             
             # 点击确认发起邀约按钮
             try:
-                logger.info("准备点击确认发起邀约按钮...")
-                submit_button = self.page.locator("button:has-text('确认发起邀约')").first
+                logger.info("准备点击发起邀约按钮...")
+                submit_button = self.page.locator("button:has-text('发起邀约')").first
                 
                 if submit_button and submit_button.is_visible():
-                    logger.info("找到确认发起邀约按钮，点击提交")
+                    logger.info("找到发起邀约按钮，点击提交")
                     submit_button.click()
                     
                     # 等待提交完成
                     self.common.random_sleep(3, 5)
                     logger.info("邀约表单提交完成")
                 else:
-                    logger.warning("未找到确认发起邀约按钮")
+                    logger.warning("未找到发起邀约按钮")
                     return False
                     
             except Exception as e:
-                logger.error(f"点击确认发起邀约按钮时出错: {str(e)}")
+                logger.error(f"点击发起邀约按钮时出错: {str(e)}")
                 return False
 
             logger.info(f"第 {row_number} 行邀约表单发送成功")

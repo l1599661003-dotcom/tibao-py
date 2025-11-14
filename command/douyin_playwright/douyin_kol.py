@@ -65,8 +65,8 @@ def load_config():
     # 解析配置
     return {
         'PGY_LOGIN_CONFIG': {
-            'start_id': config.get('PGY_LOGIN', 'start_id'),
-            'end_id': config.get('PGY_LOGIN', 'end_id')
+            'page': config.get('PGY_LOGIN', 'page'),
+            'page_size': config.get('PGY_LOGIN', 'page_size')
         },
     }
 
@@ -1133,10 +1133,20 @@ def get_pending_kols() -> List[DouyinSearchList]:
     """获取需要处理的KOL列表"""
     try:
         config = load_config()
-        kols = session.query(DouyinSearchList).filter(
-            DouyinSearchList.status == 0,
-            DouyinSearchList.id >= config['PGY_LOGIN_CONFIG']['start_id'],
-            DouyinSearchList.id <= config['PGY_LOGIN_CONFIG']['end_id']).all()
+        page = config['PGY_LOGIN_CONFIG']['page']
+        page_size = config['PGY_LOGIN_CONFIG']['page_size']
+        offset = (int(page) - 1) * int(page_size)
+
+        kols = (
+            session.query(DouyinSearchList)
+            .filter(
+                DouyinSearchList.status == 0
+            )
+            .order_by(DouyinSearchList.id.asc())  # ✅ 建议加排序，保证分页顺序稳定
+            .offset(offset)
+            .limit(page_size)
+            .all()
+        )
         print(f"从数据库获取到 {len(kols)} 个待处理的KOL")
         return kols
     except Exception as e:

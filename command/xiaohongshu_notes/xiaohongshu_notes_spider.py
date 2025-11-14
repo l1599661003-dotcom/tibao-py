@@ -2,7 +2,7 @@ import json
 import os
 import time
 from loguru import logger
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 import random
 
 from core.localhost_fp_project import session
@@ -98,8 +98,6 @@ class XiaohongshuNotesSpider:
 
                         # 打印data.items数据
                         data_items = response_data.get('data', {}).get('items', [])
-                        logger.info(f"=== feed接口返回data.items数据 ===")
-                        logger.info(f"{json.dumps(data_items, ensure_ascii=False, indent=2)}")
 
                     except Exception as e:
                         logger.error(f"解析feed接口响应数据时出错: {str(e)}")
@@ -418,17 +416,9 @@ class XiaohongshuNotesSpider:
 
             if clicked:
                 logger.info(f"成功点击第 {card_index + 1} 个笔记卡片")
-                self.human_delay(2, 3)
 
-                # 等待feed接口响应
-                wait_time = 0
-                max_wait = 10
-                while wait_time < max_wait:
-                    if 'feed' in self.api_data and len(self.api_data['feed']) > 0:
-                        logger.info("已捕获feed接口响应")
-                        break
-                    time.sleep(0.5)
-                    wait_time += 0.5
+                # 延迟模拟人工阅读笔记的时间
+                self.human_delay(3, 6)
 
                 return True
             else:
@@ -514,15 +504,37 @@ class XiaohongshuNotesSpider:
                     if note_id and note_id in new_note_ids:
                         logger.info(f"处理笔记 {note_id} (索引: {card_index})")
 
+                        # 检查笔记是否已存在数据库中（查重）
+                        existing_note = session.query(PgyNoteDetail).filter(
+                            PgyNoteDetail.note_id == note_id
+                        ).first()
+
+                        if existing_note:
+                            logger.info(f"笔记 {note_id} 已存在数据库，跳过该用户")
+                            return False  # 跳过到下一个博主
+
                         # 点击笔记卡片
                         if self.click_note_card(card_index):
-                            # 保存feed数据
-                            self.save_feed_data_to_db(user_id)
-
                             # 按ESC键关闭详情页
                             logger.info("按ESC键关闭详情页...")
                             self.page.keyboard.press('Escape')
                             self.human_delay(1, 2)
+
+                            # 等待feed接口响应（关闭后再等待）
+                            logger.info("等待feed接口响应...")
+                            wait_time = 0
+                            max_wait = 10
+                            while wait_time < max_wait:
+                                if 'feed' in self.api_data and len(self.api_data['feed']) > 0:
+                                    logger.info(f"已捕获feed接口响应（等待了 {wait_time:.1f} 秒）")
+                                    break
+                                time.sleep(0.5)
+                                wait_time += 0.5
+                            else:
+                                logger.warning(f"等待feed接口响应超时（{max_wait}秒）")
+
+                            # 保存feed数据
+                            self.save_feed_data_to_db(user.id)
 
                             # 标记为已点击
                             clicked_note_ids.add(note_id)
@@ -545,7 +557,7 @@ class XiaohongshuNotesSpider:
             self.current_user = None
             return False
 
-    def save_feed_data_to_db(self, user_id):
+    def save_feed_data_to_db(self, pgy_id):
         """保存feed数据到数据库"""
         try:
             feed_entries = self.api_data.get('feed', [])
@@ -556,62 +568,72 @@ class XiaohongshuNotesSpider:
             for entry in feed_entries:
                 response_data = entry.get('data', {})
 
-                # 打印完整的响应数据（用于调试）
-                logger.info(f"Feed响应数据: {json.dumps(response_data, ensure_ascii=False, indent=2)}")
-
                 # 提取笔记信息
                 note_info = response_data.get('data', {}).get('items', [])
                 if not note_info or len(note_info) == 0:
                     continue
 
-                note = note_info[0].get('note_card', {})
+                # 获取第一个item
+                item = note_info[0]
+                note_card = item.get('note_card', {})
 
-                note_id = note.get('note_id', '')
-                display_title = note.get('display_title', '')
-                xsec_token = note.get('xsec_token', '')
+                # 提取笔记基本信息
+                note_id = note_card.get('note_id', '')
+                note_title = note_card.get('title', '')
+                note_type = note_card.get('type', '')  # 笔记类型
+                desc = note_card.get('desc', '')  # 笔记内容
 
-                # 提取点赞、阅读、收藏数据
-                interact_info = note.get('interact_info', {})
-                like_num = interact_info.get('liked_count', '0')
-                collect_num = interact_info.get('collected_count', '0')
+                # 提取互动数据
+                interact_info = note_card.get('interact_info', {})
+                like_num = int(interact_info.get('liked_count', '0').replace('万', '0000').replace('w', '0000'))
+                collect_num = int(interact_info.get('collected_count', '0').replace('万', '0000').replace('w', '0000'))
+                share_num = int(interact_info.get('share_count', '0').replace('万', '0000').replace('w', '0000'))
 
-                # 注意：小红书API可能不直接提供阅读数
-                read_num = '0'
+                # 提取发布时间
+                last_update_time = note_card.get('last_update_time', 0)
+                if last_update_time:
+                    # 转换毫秒时间戳为秒
+                    note_date = time.strftime('%Y-%m-%d', time.localtime(last_update_time / 1000))
+                else:
+                    note_date = ''
 
                 # 获取当前时间戳
                 current_timestamp = int(time.time())
 
-                # 检查数据库中是否已存在
+                # 检查数据库中是否已存在（只根据note_id查重）
                 existing_record = session.query(PgyNoteDetail).filter(
-                    PgyNoteDetail.user_id == user_id,
                     PgyNoteDetail.note_id == note_id
                 ).first()
 
                 if existing_record:
                     # 更新已存在的记录
-                    existing_record.display_title = display_title
-                    existing_record.xsec_token = xsec_token
-                    existing_record.likeNum = like_num
-                    existing_record.readNum = read_num
-                    existing_record.collectNum = collect_num
+                    existing_record.pgy_id = pgy_id
+                    existing_record.note_title = note_title
+                    existing_record.note_type = note_type
+                    existing_record.like_num = like_num
+                    existing_record.collect_num = collect_num
+                    existing_record.share_num = share_num
+                    existing_record.note_message = desc
+                    existing_record.note_date = note_date
                     existing_record.update_time = current_timestamp
-                    logger.info(f"更新笔记数据: {display_title}")
+                    logger.info(f"更新笔记数据: {note_title} (ID: {note_id})")
                 else:
                     # 插入新记录
                     new_record = PgyNoteDetail(
-                        user_id=user_id,
-                        display_title=display_title,
+                        pgy_id=pgy_id,
                         note_id=note_id,
-                        xsec_token=xsec_token,
-                        likeNum=like_num,
-                        readNum=read_num,
-                        collectNum=collect_num,
-                        date='',
+                        note_title=note_title,
+                        note_type=note_type,
+                        like_num=like_num,
+                        collect_num=collect_num,
+                        share_num=share_num,
+                        note_message=desc,
+                        note_date=note_date,
                         create_time=current_timestamp,
                         update_time=current_timestamp
                     )
                     session.add(new_record)
-                    logger.info(f"保存新笔记数据: {display_title}")
+                    logger.info(f"保存新笔记数据: {note_title} (ID: {note_id})")
 
                 session.commit()
 

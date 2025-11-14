@@ -1,4 +1,6 @@
-﻿from sqlalchemy import Column, Integer, String, Numeric, DateTime, Text, TIMESTAMP, BigInteger, DECIMAL, \
+﻿from datetime import datetime
+
+from sqlalchemy import Column, Integer, String, Numeric, DateTime, Text, TIMESTAMP, BigInteger, DECIMAL, \
     UniqueConstraint, text, Date, Index, Date, Index, SmallInteger, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 
@@ -382,22 +384,24 @@ class PgyNoteDetail(Base):
     __tablename__ = 'pgy_note_detail'
 
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='ID')
-    user_id = Column(String(500), comment='博主ID')
-    display_title = Column(String(500), comment='笔记标题')
-    note_id = Column(String(128), comment='笔记ID')
-    xsec_token = Column(String(255), comment='安全token')
-    likeNum = Column(String(32), comment='点赞数')
-    readNum = Column(String(32), comment='阅读数')
-    collectNum = Column(String(32), comment='收藏数')
-    date = Column(String(32), comment='日期')
+    pgy_id = Column(BigInteger, comment='博主id')
+    note_id = Column(String(32), comment='笔记ID')
+    note_title = Column(String(128), comment='笔记标题')
+    note_date = Column(String(16), comment='日期')
+    note_type = Column(String(255), comment='笔记类型')
+    like_num = Column(Integer, comment='点赞数')
+    collect_num = Column(Integer, comment='收藏数')
+    share_num = Column(Integer, comment='分享数')
     create_time = Column(Integer, comment='创建时间')
     update_time = Column(Integer, comment='更新时间')
+    note_message = Column(Text, comment='笔记内容')
 
 class DouyinMcn(Base):
     __tablename__ = 'douyin_mcn'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     author_num = Column(Integer, comment='达人数')
+    name = Column(String(255), comment='标签')
     mcn_tags = Column(String(255), comment='标签')
     avatar_uri = Column(String(500), comment='MCN头像')
     complex_score = Column(DECIMAL(10, 5), comment='综合评分')
@@ -475,6 +479,7 @@ class CreatorNoteDetail(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='主键ID')
     creator_id = Column(BigInteger, nullable=True, comment='博主id', index=True)
+    platform_user_id = Column(String(32), nullable=True, comment='平台user_id')
     note_id = Column(String(32), nullable=True, comment='笔记ID')
     note_title = Column(String(128), nullable=True, comment='标题')
     brand_name = Column(String(32), nullable=True, comment='品牌名称')
@@ -488,7 +493,56 @@ class CreatorNoteDetail(Base):
     create_time = Column(Integer, nullable=True, comment='创建时间')
     update_time = Column(Integer, nullable=True, comment='更新时间')
 
+class DouyinKol(Base):
+    __tablename__ = 'douyin_kol'
 
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    douyin_id = Column(String(255), comment='抖音id')
+    douyin_url = Column(String(500), comment='抖音链接')
+    douyin_fans = Column(String(255), comment='抖音粉丝数')
+    douyin_nickname = Column(String(255), comment='抖音名')
+    douyin_sec_uid = Column(String(255), comment='抖音uid')
+    create_time = Column(Integer, default=lambda: int(datetime.now().timestamp()), comment='创建时间（时间戳）')
+    update_time = Column(Integer, default=lambda: int(datetime.now().timestamp()), onupdate=lambda: int(datetime.now().timestamp()), comment='更新时间（时间戳）')
 
+class DouyinNote(Base):
+    __tablename__ = 'douyin_note'
 
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    douyin_kol_id = Column(Integer, comment='关联抖音KOL表id')
+    note_id = Column(String(255), comment='作品ID')
+    note_link = Column(Text, comment='作品链接')
+    note_title = Column(Text, comment='作品标题')
+    note_like = Column(Integer, comment='点赞数')
+    note_collect = Column(Integer, comment='收藏数')
+    note_comment = Column(Integer, comment='评论数')
+    note_share = Column(Integer, comment='分享数')
+    note_publish_time = Column(Integer, comment='发布时间（时间戳）')
+    note_tags = Column(String(255), comment='标签')
+    note_img = Column(String(255), comment='封面图片')
+    create_time = Column(Integer, default=lambda: int(datetime.now().timestamp()), comment='创建时间（时间戳）')
+    update_time = Column(Integer, default=lambda: int(datetime.now().timestamp()), onupdate=lambda: int(datetime.now().timestamp()), comment='更新时间（时间戳）')
+
+class QianguaTag(Base):
+    __tablename__ = 'qiangua_tag'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tag_id = Column(Integer, comment='标签ID')
+    tag_name = Column(String(255), comment='标签名称')
+    create_time = Column(Integer, default=lambda: int(datetime.now().timestamp()), comment='创建时间（时间戳）')
+    update_time = Column(Integer, default=lambda: int(datetime.now().timestamp()),
+                         onupdate=lambda: int(datetime.now().timestamp()), comment='更新时间（时间戳）')
+
+class QianguaZifu(Base):
+    __tablename__ = 'qiangua_zifu'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    BrandCount = Column(String(255), comment='参与投放的品牌')
+    Amount = Column(String(255), comment='预估合作费用')
+    AmountChange = Column(String(255), comment='费用增长')
+    BrandCountChange = Column(String(255), comment='品牌数增长')
+    catorgr = Column(String(255), comment='分类')
+    month = Column(String(255), comment='月份')
+    create_time = Column(Integer, comment='创建时间')
+    update_time = Column(Integer, comment='更新时间')
 

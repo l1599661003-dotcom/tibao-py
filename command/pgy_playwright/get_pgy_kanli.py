@@ -8,12 +8,11 @@ import cv2
 import requests
 import schedule
 from loguru import logger
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 import traceback
 
-from core.database_text_tibao_2 import session
-from models.models_tibao import KolMediaAccountsConfig
 from unitl.common import Common
+from requests.exceptions import RequestException
 
 """
     更新外采博主账号信息,博主变现，粉丝情况,从蒲公英抓取数据
@@ -57,7 +56,8 @@ def load_config():
     # 解析配置
     return {
         'PGY_LOGIN_CONFIG': {
-            'id': config.get('PGY_LOGIN', 'id')
+            'id': config.get('PGY_LOGIN', 'id'),
+            'page_size': config.get('PGY_LOGIN', 'page_size')
         },
         'API_TARGETS': config.get('API_TARGETS', 'targets').split(','),
         'SCHEDULER_CONFIG': {
@@ -106,25 +106,7 @@ class PGYSpider:
             'completed_count': 0,
             'process': 0
         }
-        # 获取配置信息并立即提取到普通变量中，避免数据库会话问题
-        try:
-            config = session.query(KolMediaAccountsConfig).filter(
-                KolMediaAccountsConfig.id == int(self.config['PGY_LOGIN_CONFIG']['id'])
-            ).first()
 
-            if config:
-                # 立即提取所有需要的配置信息到普通变量中
-                self.config_email = config.email
-                self.config_password = config.password
-                self.config_name = config.name
-                self.config_client_id = config.client_id
-            else:
-                logger.error(f"未找到ID为{self.config['PGY_LOGIN_CONFIG']['id']}的配置信息")
-                raise ValueError(f"配置信息不存在: ID={self.config['PGY_LOGIN_CONFIG']['id']}")
-
-        except Exception as e:
-            logger.error(f"加载配置信息失败: {str(e)}")
-            raise
         # 初始化空的payload结构
         self.payload = {
             "apis": [
@@ -136,8 +118,49 @@ class PGYSpider:
                 {"tb_name": "blogger_fans_profile", "tb_data": []},
                 {"tb_name": "blogger_fans_history", "tb_data": []},
             ],
-            "client_id": self.config_client_id
+            "client_id": 1
         }
+
+    def _post_with_retry(
+        self,
+        url,
+        *,
+        max_attempts=3,
+        initial_backoff=5,
+        backoff_multiplier=2,
+        log_prefix="请求",
+        **kwargs
+    ):
+        """
+        带重试的POST请求，缓解远程主机主动断开导致的偶发失败。
+        """
+        attempt = 1
+        backoff = initial_backoff
+        last_error = None
+
+        while attempt <= max_attempts:
+            try:
+                response = requests.post(url, **kwargs)
+
+                if response.status_code >= 500:
+                    raise RequestException(f"服务器返回状态码 {response.status_code}")
+
+                return response
+            except RequestException as exc:
+                last_error = exc
+                logger.warning(
+                    f"{log_prefix} {url} 失败（第{attempt}次尝试，共{max_attempts}次）: {exc}"
+                )
+
+                if attempt == max_attempts:
+                    break
+
+                time.sleep(backoff)
+                backoff *= backoff_multiplier
+                attempt += 1
+
+        if last_error:
+            raise last_error
 
     def setup_logger(self):
         """设置日志配置，支持exe打包"""
@@ -177,182 +200,33 @@ class PGYSpider:
     def setup_browser(self):
         """初始化浏览器"""
         # 设置playwright浏览器路径，支持exe打包
-        # 智能检测浏览器路径
-        playwright_browsers_path = None
-
-        # 优先级1: 检查exe目录下的ms-playwright
         if hasattr(sys, '_MEIPASS'):
+            # exe环境下，使用exe文件所在目录的ms-playwright（不是临时解压目录）
             exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-            exe_playwright_path = os.path.join(exe_dir, 'ms-playwright')
-            if os.path.exists(exe_playwright_path):
-                playwright_browsers_path = exe_playwright_path
-                logger.info(f"使用exe目录下的浏览器路径: {playwright_browsers_path}")
-
-        # 优先级2: 检查当前脚本目录下的ms-playwright
-        if not playwright_browsers_path:
+            playwright_browsers_path = os.path.join(exe_dir, 'ms-playwright')
+        else:
+            # 开发环境下，使用当前目录同级的ms-playwright
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            current_playwright_path = os.path.join(current_dir, 'ms-playwright')
-            if os.path.exists(current_playwright_path):
-                playwright_browsers_path = current_playwright_path
-                logger.info(f"使用脚本目录下的浏览器路径: {playwright_browsers_path}")
+            playwright_browsers_path = os.path.join(current_dir, 'ms-playwright')
 
-        # 优先级3: 检查用户主目录下的.ms-playwright
-        if not playwright_browsers_path:
-            home_dir = os.path.expanduser("~")
-            home_playwright_path = os.path.join(home_dir, '.ms-playwright')
-            if os.path.exists(home_playwright_path):
-                playwright_browsers_path = home_playwright_path
-                logger.info(f"使用用户主目录下的浏览器路径: {playwright_browsers_path}")
-
-        # 优先级4: 检查系统安装的Playwright
-        if not playwright_browsers_path:
-            try:
-                import subprocess
-                result = subprocess.run(['playwright', '--version'], capture_output=True, text=True)
-                if result.returncode == 0:
-                    logger.info("使用系统安装的Playwright")
-                    # 尝试获取系统Playwright的浏览器路径
-                    try:
-                        result = subprocess.run(['playwright', 'install', '--dry-run'], capture_output=True, text=True)
-                        if 'chromium' in result.stdout:
-                            logger.info("系统Playwright已安装Chromium浏览器")
-                    except:
-                        pass
-                else:
-                    logger.warning("未找到系统安装的Playwright")
-            except Exception as e:
-                logger.warning(f"检查系统Playwright时出错: {str(e)}")
-
-        # 设置环境变量并启动浏览器
-        browser_launched = False
-
-        # 方法1: 尝试使用自定义路径启动
+        # 设置环境变量
         if os.path.exists(playwright_browsers_path):
-            # 检查浏览器目录是否完整
-            import glob
-            chromium_pattern = os.path.join(playwright_browsers_path, 'chromium-*', 'chrome-win', 'chrome.exe')
-            chromium_files = glob.glob(chromium_pattern)
+            os.environ['PLAYWRIGHT_BROWSERS_PATH'] = playwright_browsers_path
+            logger.info(f"使用自定义浏览器路径: {playwright_browsers_path}")
+        else:
+            logger.warning(f"未找到自定义浏览器路径: {playwright_browsers_path}")
 
-            if chromium_files:
-                logger.info(f"找到Chromium浏览器: {chromium_files[0]}")
-                try:
-                    os.environ['PLAYWRIGHT_BROWSERS_PATH'] = playwright_browsers_path
-                    logger.info(f"尝试使用自定义浏览器路径: {playwright_browsers_path}")
-
-                    self.playwright = sync_playwright().start()
-                    self.browser = self.playwright.chromium.launch(
-                        headless=False,
-                        args=[
-                            '--disable-blink-features=AutomationControlled',
-                            '--disable-gpu',
-                            '--no-sandbox',
-                            '--disable-dev-shm-usage',
-                        ]
-                    )
-                    logger.info("成功启动Chromium浏览器（自定义路径）")
-                    browser_launched = True
-                except Exception as custom_error:
-                    logger.warning(f"使用自定义路径启动失败: {str(custom_error)}")
-                    # 清除环境变量，准备尝试其他方法
-                    if 'PLAYWRIGHT_BROWSERS_PATH' in os.environ:
-                        del os.environ['PLAYWRIGHT_BROWSERS_PATH']
-            else:
-                logger.warning(f"浏览器目录 {playwright_browsers_path} 不完整，缺少Chromium可执行文件")
-                # 列出目录内容以便调试
-                try:
-                    dir_contents = os.listdir(playwright_browsers_path)
-                    logger.info(f"ms-playwright目录内容: {dir_contents}")
-
-                    # 尝试自动修复浏览器目录
-                    logger.info("尝试自动修复浏览器目录...")
-                    try:
-                        import subprocess
-                        logger.info("运行 playwright install chromium...")
-                        result = subprocess.run(['playwright', 'install', 'chromium'],
-                                                capture_output=True, text=True, timeout=300)
-                        if result.returncode == 0:
-                            logger.info("成功安装Chromium浏览器")
-                            # 重新检查浏览器文件
-                            chromium_files = glob.glob(chromium_pattern)
-                            if chromium_files:
-                                logger.info(f"修复后找到Chromium浏览器: {chromium_files[0]}")
-                                # 重新尝试启动
-                                try:
-                                    os.environ['PLAYWRIGHT_BROWSERS_PATH'] = playwright_browsers_path
-                                    if not hasattr(self, 'playwright'):
-                                        self.playwright = sync_playwright().start()
-
-                                    self.browser = self.playwright.chromium.launch(
-                                        headless=False,
-                                        args=[
-                                            '--disable-blink-features=AutomationControlled',
-                                            '--disable-gpu',
-                                            '--no-sandbox',
-                                            '--disable-dev-shm-usage',
-                                        ]
-                                    )
-                                    logger.info("修复后成功启动Chromium浏览器")
-                                    browser_launched = True
-                                except Exception as retry_error:
-                                    logger.warning(f"修复后启动仍然失败: {str(retry_error)}")
-                            else:
-                                logger.warning("安装后仍未找到浏览器文件")
-                        else:
-                            logger.warning(f"自动安装失败: {result.stderr}")
-                    except Exception as install_error:
-                        logger.warning(f"自动安装过程出错: {str(install_error)}")
-
-                except Exception as list_error:
-                    logger.warning(f"无法列出目录内容: {str(list_error)}")
-
-        # 方法2: 尝试使用系统默认路径启动
-        if not browser_launched:
-            try:
-                logger.info("尝试使用系统默认路径启动浏览器...")
-                if not hasattr(self, 'playwright'):
-                    self.playwright = sync_playwright().start()
-
-                self.browser = self.playwright.chromium.launch(
-                    headless=False,
-                    args=[
-                        '--disable-blink-features=AutomationControlled',
-                        '--disable-gpu',
-                        '--no-sandbox',
-                        '--disable-dev-shm-usage',
-                    ]
-                )
-                logger.info("成功启动Chromium浏览器（系统默认）")
-                browser_launched = True
-            except Exception as system_error:
-                logger.warning(f"使用系统默认路径启动失败: {str(system_error)}")
-
-        # 方法3: 尝试使用Firefox作为备选
-        if not browser_launched:
-            try:
-                logger.info("尝试启动Firefox浏览器...")
-                if not hasattr(self, 'playwright'):
-                    self.playwright = sync_playwright().start()
-
-                self.browser = self.playwright.firefox.launch(
-                    headless=False,
-                    args=[
-                        '--disable-gpu',
-                        '--no-sandbox',
-                    ]
-                )
-                logger.info("成功启动Firefox浏览器")
-                browser_launched = True
-            except Exception as firefox_error:
-                logger.warning(f"启动Firefox浏览器失败: {str(firefox_error)}")
-
-        # 如果所有方法都失败
-        if not browser_launched:
-            error_msg = "无法启动任何浏览器，请检查Playwright安装。"
-            error_msg += "\n可能的解决方案："
-            error_msg += "\n1. 确保ms-playwright目录包含完整的浏览器文件"
-            error_msg += "\n2. 运行 'playwright install' 安装浏览器"
-            error_msg += "\n3. 检查系统是否支持Playwright"
-            raise Exception(error_msg)
+        self.playwright = sync_playwright().start()
+        # 配置浏览器选项
+        self.browser = self.playwright.chromium.launch(
+            headless=False,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--disable-gpu',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+            ]
+        )
         # 创建上下文
         self.context = self.browser.new_context(
             viewport={
@@ -404,69 +278,6 @@ class PGYSpider:
                 return True
 
             logger.info("开始登录流程...")
-            # try:
-            #     # 访问首页
-            #     self.page.goto(self.base_url)
-            #     self.common.random_sleep()
-            #
-            #     # 等待并点击第一个登录按钮
-            #     logger.info("等待第一个登录按钮出现...")
-            #     first_login_button = self.page.wait_for_selector("text=账号登录", timeout=10000)
-            #     if not first_login_button:
-            #         logger.error("未找到第一个登录按钮")
-            #         return False
-            #     first_login_button.click()
-            #     self.common.random_sleep(1, 2)
-            #
-            #     # 等待并点击弹窗中的账号登录按钮
-            #     logger.info("等待弹窗中的账号登录按钮...")
-            #     second_login_button = self.page.wait_for_selector("text=账号登录 >> nth=1", timeout=10000)
-            #     if not second_login_button:
-            #         logger.error("未找到弹窗中的账号登录按钮")
-            #         return False
-            #     second_login_button.click()
-            #     self.common.random_sleep(1, 2)
-            #
-            #     # 等待邮箱输入框出现并输入邮箱
-            #     logger.info("正在输入账号密码...")
-            #     email_input = self.page.wait_for_selector("input.css-1dbyz17.css-xno39g.dyn", timeout=5000)
-            #     email_input.fill(self.config_email)
-            #     self.common.random_sleep(1, 2)  # 模拟人工输入间隔
-            #
-            #     # 等待5分钟，每10秒检查一次登录状态
-            #     max_wait_time = 300  # 5分钟 = 300秒
-            #     check_interval = 10  # 每10秒检查一次
-            #     elapsed_time = 0
-            #
-            #     while elapsed_time < max_wait_time:
-            #         try:
-            #             # 检查是否存在用户头像元素（登录成功的标志）
-            #             user_avatar = self.page.locator(".home_head_user_info").first
-            #             if user_avatar and user_avatar.is_visible():
-            #                 logger.info("检测到登录成功！")
-            #                 self.is_logged_in = True
-            #
-            #                 # 登录成功后保存Cookie
-            #                 self._save_cookies()
-            #
-            #                 return True
-            #
-            #             time.sleep(check_interval)
-            #             elapsed_time += check_interval
-            #
-            #         except Exception as e:
-            #             logger.warning(f"检查登录状态时出错: {str(e)}")
-            #             time.sleep(check_interval)
-            #             elapsed_time += check_interval
-            #
-            #     # 5分钟超时，仍未登录成功
-            #     logger.error("等待登录超时（5分钟），程序退出")
-            #     return False
-            #
-            # except Exception as e:
-            #     logger.error(f"等待登录过程中出现异常: {str(e)}")
-            #     return False
-            logger.info("开始等待用户手动登录,请在5分钟内完成登录操作，程序将自动检测登录状态")
 
             try:
                 # 访问首页
@@ -528,20 +339,36 @@ class PGYSpider:
                 except Exception as recreate_error:
                     logger.error(f"重新创建页面失败: {str(recreate_error)}")
                     return None
-            config = session.query(KolMediaAccountsConfig).filter(
-                KolMediaAccountsConfig.id == int(self.config['PGY_LOGIN_CONFIG']['id'])
-            ).first()
-
-            if not config:
-                logger.error(f"未找到ID为{self.config['PGY_LOGIN_CONFIG']['id']}的配置信息")
-                raise ValueError(f"配置信息不存在: ID={self.config['PGY_LOGIN_CONFIG']['id']}")
 
             # 查询需要更新的博主数据 - 匹配PHP查询逻辑
-            api_url = f"https://tianji.fangpian999.com/api/admin/creatorBusiness/getNewerCreator?type=1&page={config.id}&pageSize={config.pageSize}"
+            api_url = (
+                "https://tianji.fangpian999.com/api/admin/creatorBusiness/getNewerCreator"
+                f"?type=1&page={self.config['PGY_LOGIN_CONFIG']['id']}&pageSize={self.config['PGY_LOGIN_CONFIG']['page_size']}"
+            )
             headers = {"Content-Type": "application/json"}
 
-            response = requests.post(api_url, headers=headers, timeout=30)
-            urls = response.json()['data']
+            try:
+                response = self._post_with_retry(
+                    api_url,
+                    headers=headers,
+                    timeout=30,
+                    max_attempts=3,
+                    log_prefix="获取博主列表"
+                )
+            except RequestException as request_error:
+                logger.error(f"获取博主列表失败: {str(request_error)}")
+                return None
+
+            try:
+                response_data = response.json()
+            except ValueError as json_error:
+                logger.error(f"解析博主列表响应失败: {str(json_error)}")
+                return None
+
+            urls = response_data.get('data', [])
+            if not isinstance(urls, list):
+                logger.error("博主列表接口返回格式异常，未获取到有效数据")
+                return None
 
             logger.info(f"找到 {len(urls)} 个博主数据")
             if len(urls) <= 0:
@@ -578,7 +405,7 @@ class PGYSpider:
                             {"tb_name": "blogger_fans_profile", "tb_data": []},
                             {"tb_name": "blogger_fans_history", "tb_data": []},
                         ],
-                        "client_id": self.config_client_id
+                        "client_id": 1
                     }
 
                     logger.info(f"正在处理博主: {url['creator_nickname']}")
@@ -597,7 +424,7 @@ class PGYSpider:
                         
                         # 等待页面加载完成
                         try:
-                            self.page.wait_for_load_state('networkidle', timeout=10000)
+                            self.page.wait_for_load_state('networkidle', timeout=5000)
                         except Exception as e:
                             logger.warning(f"等待页面加载完成时出错: {str(e)}")
                             # 尝试等待DOM加载完成
@@ -612,7 +439,7 @@ class PGYSpider:
                             continue
                             
                         self._click_ignore_button()
-                        self.common.random_sleep(60, 90)
+                        self.common.random_sleep(30, 40)
                         
                     except Exception as e:
                         logger.error(f"访问页面失败: {str(e)}")
@@ -1086,12 +913,18 @@ class PGYSpider:
             url = "http://47.104.76.46:19000/api/v1/sync/spider/data"
             headers = {"Content-Type": "application/json"}
 
-            response = requests.post(
-                url,
-                headers=headers,
-                data=json.dumps(payload, ensure_ascii=False),
-                timeout=30
-            )
+            try:
+                response = self._post_with_retry(
+                    url,
+                    headers=headers,
+                    data=json.dumps(payload, ensure_ascii=False),
+                    timeout=30,
+                    max_attempts=3,
+                    log_prefix="同步单条数据"
+                )
+            except RequestException as sync_error:
+                logger.error(f"单条数据同步请求失败: {str(sync_error)}")
+                return False
 
             if response.status_code == 200:
                 return True

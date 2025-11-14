@@ -142,45 +142,142 @@ def get_token_list():
         return None
 
 
-def get_invites_data(token_content):
-    """获取邀约数据"""
+def check_invite_detail(invite_id):
+    """
+    检查指定inviteId是否已存在于数据库
+
+    Args:
+        invite_id: 邀约ID
+
+    Returns:
+        bool: True表示已存在（应停止分页），False表示不存在（继续分页）
+    """
+    try:
+        headers = {"Content-Type": "application/json"}
+        api_url = f"{API_BASE_URL}/api/admin/pgyInvites/getPgyInvitesDetail"
+
+        params = {'invite_id': invite_id}
+
+        response = requests.get(
+            api_url,
+            headers=headers,
+            params=params,
+            timeout=REQUEST_TIMEOUT
+        )
+
+        if response.status_code != 200:
+            logger.warning(f"检查inviteId {invite_id} 失败，状态码: {response.status_code}")
+            return False
+
+        result = response.json()
+
+        # 如果返回有数据，说明已存在
+        if result.get('data'):
+            logger.info(f"✅ inviteId {invite_id} 已存在数据库，停止分页")
+            return True
+        else:
+            logger.debug(f"inviteId {invite_id} 不存在，继续分页")
+            return False
+
+    except Exception as e:
+        logger.warning(f"检查inviteId {invite_id} 出错: {str(e)}")
+        return False
+
+
+def get_invites_data(token_content, platform_user_id):
+    """
+    获取邀约数据（支持多页）
+
+    Args:
+        token_content: 蒲公英token
+        platform_user_id: 用户ID
+
+    Returns:
+        list: 所有邀约数据列表，失败返回None
+    """
     try:
         pgy_headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
             "cookie": token_content,
             "Content-Type": "application/json"
         }
-        
-        base_data = {
-            "pageNum": 1,
-            "pageSize": 100,
-            "inviteStatus": "-1",
-            "kolIntention": "-1",
-            "kolType": 0,
-            "searchDateType": 1,
-            "showWechat": 0
-        }
-        
-        # 延迟请求
-        time.sleep(REQUEST_DELAY)
-        
-        response = requests.post(
-            PGY_API_URL,
-            headers=pgy_headers,
-            json=base_data,
-            verify=False,
-            timeout=REQUEST_TIMEOUT
-        )
-        
-        if response.status_code != 200:
-            return None
-        
-        pgy_data = response.json()['data']
-        
-        if 'invites' not in pgy_data:
-            return None
-        
-        return pgy_data['invites']
+
+        all_invites = []  # 存储所有邀约数据
+        page_num = 1
+        max_pages = 100  # 最大分页数，防止无限循环
+
+        while page_num <= max_pages:
+            logger.info(f"📄 请求第 {page_num} 页数据...")
+
+            page_data = {
+                "pageNum": page_num,
+                "pageSize": 20,  # 改为每页20条
+                "inviteStatus": "-1",
+                "kolIntention": "-1",
+                "kolType": 0,
+                "searchDateType": 1,
+                "showWechat": 0
+            }
+
+            # 延迟请求（第一页在外部已延迟）
+            if page_num > 1:
+                time.sleep(REQUEST_DELAY)
+
+            response = requests.post(
+                PGY_API_URL,
+                headers=pgy_headers,
+                json=page_data,
+                verify=False,
+                timeout=REQUEST_TIMEOUT
+            )
+
+            if response.status_code != 200:
+                logger.error(f"请求第 {page_num} 页失败，状态码: {response.status_code}")
+                break
+
+            pgy_data = response.json().get('data', {})
+
+            if 'invites' not in pgy_data:
+                logger.warning(f"第 {page_num} 页无invites数据")
+                break
+
+            current_invites = pgy_data['invites']
+
+            if not current_invites or len(current_invites) == 0:
+                logger.info(f"第 {page_num} 页无数据，停止分页")
+                break
+
+            logger.success(f"✅ 第 {page_num} 页获取到 {len(current_invites)} 条数据")
+
+            # 取最后一条数据的inviteId
+            last_invite = current_invites[-1]
+            last_invite_id = last_invite.get('inviteId')
+
+            if not last_invite_id:
+                logger.warning(f"第 {page_num} 页最后一条数据无inviteId")
+                all_invites.extend(current_invites)
+                break
+
+            # 检查最后一条数据是否已存在
+            logger.debug(f"检查最后一条数据 inviteId: {last_invite_id}")
+
+            if check_invite_detail(last_invite_id):
+                # 已存在，说明到达已有数据，停止分页
+                logger.info(f"🛑 第 {page_num} 页已到达已有数据，停止分页")
+                all_invites.extend(current_invites)
+                break
+            else:
+                # 不存在，继续下一页
+                all_invites.extend(current_invites)
+                page_num += 1
+
+        if page_num > max_pages:
+            logger.warning(f"⚠️ 达到最大分页数 {max_pages}，停止请求")
+
+        logger.info(f"📊 总共获取 {len(all_invites)} 条邀约数据（{page_num} 页）")
+
+        return all_invites if all_invites else None
+
     except Exception as e:
         logger.error(f"获取邀约数据出错: {str(e)}")
         return None
@@ -263,7 +360,8 @@ def run_spider_task():
                 
                 # 获取邀约数据
                 logger.info(f"📥 获取邀约数据(等待{REQUEST_DELAY}秒)...")
-                invites = get_invites_data(token_content)
+                time.sleep(REQUEST_DELAY)  # 第一页延迟
+                invites = get_invites_data(token_content, platform_user_id)
                 
                 if invites is None:
                     logger.error("❌ 获取邀约数据失败")

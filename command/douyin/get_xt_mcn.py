@@ -64,6 +64,7 @@ def save_mcn_to_db(mcn_data):
             existing_mcn.growth_score = mcn_data.get('growth_score')
             existing_mcn.introduction = mcn_data.get('introduction')
             existing_mcn.sum_follower = mcn_data.get('sum_follower')
+            existing_mcn.name = mcn_data.get('name')
             existing_mcn.update_time = current_time
             
             logger.debug(f"更新MCN: {mcn_data.get('name')} (user_id: {user_id})")
@@ -77,6 +78,7 @@ def save_mcn_to_db(mcn_data):
                 complex_score=mcn_data.get('complex_score'),
                 growth_score=mcn_data.get('growth_score'),
                 introduction=mcn_data.get('introduction'),
+                name=mcn_data.get('name'),
                 user_id=user_id,
                 sum_follower=mcn_data.get('sum_follower'),
                 create_time=current_time,
@@ -132,7 +134,7 @@ def main():
     logger.info("=" * 70)
     
     try:
-        page = 130
+        page = 1
         total_mcns = 0
         inserted_count = 0
         updated_count = 0

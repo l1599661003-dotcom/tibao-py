@@ -806,9 +806,23 @@ class DouYinSpider:
                     self.logger.info(f"选择器 '{".user-avatar"}' 找到 {count} 个元素")
 
                     if count > 0:
-                        if element.first.is_visible(timeout=3000):
-                            self.logger.info(f"✅ 通过选择器 '{".user-avatar"}' 检测到Cookie有效")
-                            login_detected = True
+                        # 检查所有元素，只要有一个可见就认为登录成功
+                        self.logger.info(f"开始检查 {count} 个 .user-avatar 元素的可见性...")
+                        all_elements = element.all()
+                        for i, elem in enumerate(all_elements):
+                            try:
+                                if elem.is_visible(timeout=1000):
+                                    self.logger.info(f"第 {i+1} 个 .user-avatar 元素可见，Cookie有效")
+                                    login_detected = True
+                                    break
+                                else:
+                                    self.logger.debug(f"第 {i+1} 个 .user-avatar 元素不可见")
+                            except Exception as elem_error:
+                                self.logger.debug(f"第 {i+1} 个 .user-avatar 元素检查出错: {str(elem_error)}")
+                                continue
+
+                        if not login_detected:
+                            self.logger.warning(f"找到 {count} 个 .user-avatar 元素，但都不可见")
                 except Exception as e:
                     self.logger.debug(f"选择器 '{".user-avatar"}' 检查出错: {str(e)}")
 

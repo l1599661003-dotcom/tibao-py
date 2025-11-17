@@ -375,10 +375,23 @@ class PgyUser(Base):
     userId = Column(String(128), comment='博主名称')
     nick_name = Column(String(128), comment='博主名称')
     xsec_token = Column(String(255), comment='笔记标题')
-    fans = Column(String(32), comment='博主user_id')
-    like = Column(String(32), comment='笔记小红书id')
+    team_name = Column(String(32), comment='博主user_id')
+    team_boss = Column(String(32), comment='笔记小红书id')
+    douyin_xsec_token = Column(String(500), comment='笔记小红书id')
+    douyin_name = Column(String(500), comment='笔记小红书id')
+    status = Column(Integer, comment='笔记小红书id')
     create_time = Column(Integer, comment='创建时间')
     update_time = Column(Integer, comment='更新时间')
+
+class PgyUserFans(Base):
+    __tablename__ = 'pgy_user_fans'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='ID')
+    user_id = Column(String(128), comment='博主名称')
+    fans = Column(String(32), comment='博主user_id')
+    platform_id = Column(Integer, comment='博主user_id')
+    create_time = Column(DateTime, comment='创建时间')
+    update_time = Column(DateTime, comment='更新时间')
 
 class PgyNoteDetail(Base):
     __tablename__ = 'pgy_note_detail'
@@ -392,6 +405,7 @@ class PgyNoteDetail(Base):
     like_num = Column(Integer, comment='点赞数')
     collect_num = Column(Integer, comment='收藏数')
     share_num = Column(Integer, comment='分享数')
+    platform_id = Column(Integer, comment='博主user_id')
     create_time = Column(Integer, comment='创建时间')
     update_time = Column(Integer, comment='更新时间')
     note_message = Column(Text, comment='笔记内容')
@@ -545,4 +559,28 @@ class QianguaZifu(Base):
     month = Column(String(255), comment='月份')
     create_time = Column(Integer, comment='创建时间')
     update_time = Column(Integer, comment='更新时间')
+
+class BloggerInfo(Base):
+    __tablename__ = "blogger_info"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    pgy_link = Column(String(255))
+    identity_tags = Column(String(255))
+    nickname = Column(String(100))
+    homepage_link = Column(String(255))
+    daily_read_median = Column(Integer)
+    daily_engagement_median = Column(Integer)
+    gender = Column(String(20))
+    location = Column(String(100))
+    picture_price = Column(Integer)
+    video_price = Column(Integer)
+    trade_type = Column(String(100))
+    red_id = Column(String(100), index=True)
+    fans_count = Column(Integer)
+    tags = Column(String(500))
+    tag = Column(String(255))
+    created_at = Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"))
+    updated_at = Column(TIMESTAMP,  server_default=text("CURRENT_TIMESTAMP"), server_onupdate=text("CURRENT_TIMESTAMP"))
+
+
 

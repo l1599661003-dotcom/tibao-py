@@ -3,6 +3,7 @@ import os
 import time
 import traceback
 from datetime import datetime
+
 from loguru import logger
 from playwright.sync_api import sync_playwright
 import random
@@ -81,6 +82,27 @@ class XiaohongshuNotesSpider:
         """处理API响应"""
         try:
             url = response.url
+
+            # 监听user_posted接口
+            if 'web/v1/user_posted' in url:
+                if response.status == 200:
+                    try:
+                        response_data = response.json()
+                        logger.info(f"捕获到user_posted接口响应")
+
+                        # 保存user_posted数据
+                        self.api_data['user_posted'] = {
+                            'url': url,
+                            'data': response_data,
+                            'timestamp': int(time.time() * 1000)
+                        }
+
+                        # 打印notes数量
+                        notes = response_data.get('data', {}).get('notes', [])
+                        logger.info(f"user_posted接口返回 {len(notes)} 条笔记")
+
+                    except Exception as e:
+                        logger.error(f"解析user_posted接口响应数据时出错: {str(e)}")
 
             # 监听api/sns/web/v1/feed接口
             if 'api/sns/web/v1/feed' in url:
@@ -218,7 +240,11 @@ class XiaohongshuNotesSpider:
             # 访问首页（persistent context会自动加载之前保存的cookies）
             logger.info("访问小红书首页...")
             self.page.goto(self.base_url)
-            time.sleep(3)
+            # 等待页面加载完成
+            try:
+                self.page.wait_for_load_state('networkidle', timeout=5000)
+            except Exception as e:
+                logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
             # 检查登录状态
             if self.check_login_status():
@@ -498,6 +524,7 @@ class XiaohongshuNotesSpider:
                     new_fans_record = PgyUserFans(
                         user_id=user.id,
                         fans=fans_count,
+                        platform_id=1,
                         create_time=datetime.now(),
                         update_time=datetime.now()
                     )
@@ -516,6 +543,23 @@ class XiaohongshuNotesSpider:
             # 等待页面加载完成
             self.human_delay(2, 3)
 
+            # 等待user_posted接口响应
+            logger.info("等待user_posted接口响应...")
+            wait_time = 0
+            max_wait = 10
+            while wait_time < max_wait:
+                if 'user_posted' in self.api_data and self.api_data['user_posted']:
+                    logger.info(f"已捕获user_posted接口响应（等待了 {wait_time:.1f} 秒）")
+                    break
+                time.sleep(0.5)
+                wait_time += 0.5
+            else:
+                logger.warning(f"等待user_posted接口响应超时（{max_wait}秒）")
+
+            # 保存user_posted数据到数据库
+            if 'user_posted' in self.api_data and self.api_data['user_posted']:
+                self.save_user_posted_data_to_db(user.id)
+
             # 记录已点击过的笔记ID
             clicked_note_ids = set()
             total_clicked = 0
@@ -530,6 +574,7 @@ class XiaohongshuNotesSpider:
             logger.info(f"初始加载了 {len(cards)} 个笔记section")
 
             # 循环处理：点击section -> 滚动 -> 点击新增section
+            should_stop = False  # 初始化停止标志
             for round_num in range(max_rounds):
                 logger.info(f"===== 第 {round_num + 1} 轮处理 =====")
 
@@ -585,12 +630,44 @@ class XiaohongshuNotesSpider:
                             # 保存feed数据（save_feed_data_to_db会自动处理新增和更新）
                             self.save_feed_data_to_db(user.id)
 
+                            # 检查笔记发布时间，如果小于2025-10-12则停止点击
+                            feed_entries = self.api_data.get('feed', [])
+                            if feed_entries:
+                                for entry in feed_entries:
+                                    response_data = entry.get('data', {})
+                                    note_info = response_data.get('data', {}).get('items', [])
+                                    if note_info and len(note_info) > 0:
+                                        item = note_info[0]
+                                        note_card = item.get('note_card', {})
+                                        last_update_time = note_card.get('last_update_time', 0)
+
+                                        if last_update_time:
+                                            # 转换毫秒时间戳为日期
+                                            note_date = datetime.fromtimestamp(last_update_time / 1000)
+                                            cutoff_date = datetime(2025, 10, 12)
+
+                                            logger.info(f"笔记发布时间: {note_date.strftime('%Y-%m-%d')}")
+
+                                            if note_date < cutoff_date:
+                                                logger.info(f"笔记发布时间 {note_date.strftime('%Y-%m-%d')} 早于 2025-10-12，停止点击")
+                                                should_stop = True
+                                                break
+
                             # 标记为已点击
                             clicked_note_ids.add(note_id)
                             total_clicked += 1
+
+                            # 如果需要停止，跳出循环
+                            if should_stop:
+                                logger.info("因发布时间过早，停止处理该用户的笔记")
+                                break
                         else:
                             logger.error(f"点击笔记 {note_id} 失败")
                             continue
+
+                # 如果因为发布时间过早而停止，跳出外层循环
+                if should_stop:
+                    break
 
                 # 滚动触发新section加载
                 logger.info("向下滚动触发新section加载...")
@@ -604,6 +681,93 @@ class XiaohongshuNotesSpider:
         except Exception as e:
             logger.error(f"处理用户 {user.nick_name} 时出错: {str(e)}")
             self.current_user = None
+            return False
+
+    def save_user_posted_data_to_db(self, pgy_id):
+        """保存user_posted数据到数据库"""
+        try:
+            user_posted_data = self.api_data.get('user_posted', {})
+
+            if not user_posted_data:
+                logger.warning("未捕获user_posted数据")
+                return False
+
+            response_data = user_posted_data.get('data', {})
+            notes = response_data.get('data', {}).get('notes', [])
+
+            logger.info(f"准备保存 {len(notes)} 条笔记数据到数据库")
+
+            if not notes:
+                logger.warning("notes为空")
+                return False
+
+            saved_count = 0
+            updated_count = 0
+
+            for note in notes:
+                note_id = note.get('note_id', '')
+                display_title = note.get('display_title', '')
+                note_type = note.get('type', '')
+                xsec_token = note.get('xsec_token', '')
+
+                # 提取互动数据
+                interact_info = note.get('interact_info', {})
+                liked_count = interact_info.get('liked_count', '0')
+                # 处理数字格式（可能包含"万"或"w"）
+                if isinstance(liked_count, str):
+                    like_num = int(liked_count.replace('万', '0000').replace('w', '0000'))
+                else:
+                    like_num = int(liked_count)
+
+                # 获取当前时间戳
+                current_timestamp = int(time.time())
+
+                # 检查数据库中是否已存在（只根据note_id查重）
+                existing_record = session.query(PgyNoteDetail).filter(
+                    PgyNoteDetail.note_id == note_id
+                ).first()
+
+                if existing_record:
+                    # 更新已存在的记录（暂时不更新 note_date，等点击后再更新）
+                    existing_record.pgy_id = pgy_id
+                    existing_record.note_title = display_title
+                    existing_record.note_type = note_type
+                    existing_record.like_num = like_num
+                    existing_record.xsec_token = xsec_token
+                    existing_record.platform_id = 1
+                    existing_record.update_time = current_timestamp
+                    updated_count += 1
+                    logger.info(f"✓ 更新笔记数据: {display_title} (ID: {note_id})")
+                else:
+                    # 插入新记录（note_date稍后在点击时更新）
+                    new_record = PgyNoteDetail(
+                        pgy_id=pgy_id,
+                        note_id=note_id,
+                        note_title=display_title,
+                        note_type=note_type,
+                        like_num=like_num,
+                        xsec_token=xsec_token,
+                        collect_num=0,
+                        share_num=0,
+                        note_message='',
+                        note_date='',  # 稍后在点击时更新
+                        create_time=current_timestamp,
+                        update_time=current_timestamp,
+                        platform_id=1
+                    )
+                    session.add(new_record)
+                    saved_count += 1
+                    logger.info(f"✓ 保存新笔记数据: {display_title} (ID: {note_id})")
+
+                session.commit()
+
+            logger.info(f"✓ user_posted数据保存完成：新增 {saved_count} 条，更新 {updated_count} 条")
+            return True
+
+        except Exception as e:
+            logger.error(f"保存user_posted数据到数据库时出错: {str(e)}")
+            logger.error(f"错误详情: {traceback.format_exc()}")
+            session.rollback()
             return False
 
     def save_feed_data_to_db(self, pgy_id):

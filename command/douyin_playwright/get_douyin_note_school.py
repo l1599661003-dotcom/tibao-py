@@ -57,11 +57,27 @@ class DouyinNoteSpider:
 
     def setup_browser(self):
         """初始化浏览器"""
+        # 如果浏览器已经初始化，直接返回
         if self.browser and self.context and self.page:
+            logger.info("浏览器已经初始化，跳过重复初始化")
             return
+
+        # 启动新的浏览器
+        logger.info("正在启动浏览器...")
         self.playwright = sync_playwright().start()
-        self.browser = self.playwright.chromium.launch(headless=False, args=['--disable-blink-features=AutomationControlled', '--disable-gpu', '--no-sandbox'])
-        self.context = self.browser.new_context(viewport={'width': 1512, 'height': 768}, user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+        self.browser = self.playwright.chromium.launch(
+            headless=False,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--disable-gpu',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+            ]
+        )
+        self.context = self.browser.new_context(
+            viewport={'width': 1512, 'height': 768},
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        )
 
         if self._load_cookies():
             self.page = self.context.new_page()
@@ -232,7 +248,8 @@ class DouyinNoteSpider:
         """滚动加载更多"""
         try:
             logger.info("滚动加载...")
-            self.page.evaluate('() => { window.scrollTo({top: document.documentElement.scrollHeight, behavior: "smooth"}); }')
+            # 简单的滚动到底部
+            self.page.evaluate('window.scrollTo(0, document.body.scrollHeight);')
             self.common.random_sleep(3, 5)
             return True
         except Exception as e:
@@ -250,6 +267,7 @@ class DouyinNoteSpider:
             douyin_url = f"https://www.douyin.com/user/{user_id}"
             logger.info(f"访问: {douyin_url}")
             self.api_data = {}
+
             self.page.goto(douyin_url)
             # 等待页面加载完成
             try:
@@ -267,6 +285,7 @@ class DouyinNoteSpider:
             max_scrolls = 20
             scroll_count = 0
             no_new_data_count = 0
+            cutoff_date = datetime.strptime('2025-11-11', '%Y-%m-%d')
 
             while scroll_count < max_scrolls:
                 logger.info(f"===== 第 {scroll_count + 1} 次加载 =====")
@@ -275,8 +294,26 @@ class DouyinNoteSpider:
                     aweme_list = self.api_data['post'][-1]['data'].get('aweme_list', [])
                     if aweme_list and len(aweme_list) > 0:
                         logger.info(f"获取 {len(aweme_list)} 条笔记")
+
+                        # 检查最后一条笔记的日期
+                        last_note = aweme_list[-1]
+                        last_note_time = last_note.get('create_time', 0)
+                        if last_note_time:
+                            last_note_date = datetime.fromtimestamp(last_note_time)
+                            logger.info(f"最后一条笔记日期: {last_note_date.strftime('%Y-%m-%d')}")
+
+                            # 如果最后一条笔记日期 <= 2025-11-11，停止滚动，跳过该博主
+                            if last_note_date <= cutoff_date:
+                                logger.info(f"最后一条笔记日期({last_note_date.strftime('%Y-%m-%d')}) <= 2025-11-11，停止滚动，跳过该博主")
+                                # 先保存当前批次的数据
+                                self.save_notes(user, aweme_list)
+                                break
+
                         self.save_notes(user, aweme_list)
                         no_new_data_count = 0
+
+                        # 清空已处理的数据，准备接收下一批
+                        self.api_data['post'] = []
                     else:
                         no_new_data_count += 1
                 else:
@@ -293,11 +330,16 @@ class DouyinNoteSpider:
             logger.info(f"===== 用户 {nick_name} 处理完成 =====")
             self.stats['success_users'] += 1
             self.current_user = None
+
+            # 清理API数据缓存
+            self.api_data = {}
+
             return True
         except Exception as e:
             logger.error(f"处理用户出错: {str(e)}")
             logger.error(traceback.format_exc())
             self.current_user = None
+            self.api_data = {}  # 清理数据
             return False
 
     def run(self):
@@ -319,6 +361,7 @@ class DouyinNoteSpider:
             for index, user in enumerate(users):
                 logger.info(f"处理第 {index + 1}/{len(users)} 个用户")
                 self.process_user(user)
+
                 if index < len(users) - 1:
                     self.common.random_sleep(3, 5)
 
@@ -344,6 +387,7 @@ class DouyinNoteSpider:
         try:
             if self.is_logged_in:
                 self._save_cookies()
+
             if hasattr(self, 'page') and self.page:
                 self.page.close()
             if hasattr(self, 'context') and self.context:
@@ -352,6 +396,7 @@ class DouyinNoteSpider:
                 self.browser.close()
             if hasattr(self, 'playwright') and self.playwright:
                 self.playwright.stop()
+
             logger.info("资源已关闭")
         except Exception as e:
             logger.error(f"关闭资源出错: {str(e)}")
@@ -395,6 +440,7 @@ def main():
     spider = None
     try:
         logger.info("=== 抖音笔记爬虫启动 ===")
+
         spider = DouyinNoteSpider()
         spider.setup_browser()
         if not spider.login():

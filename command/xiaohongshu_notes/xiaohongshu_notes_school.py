@@ -720,7 +720,7 @@ class XiaohongshuNotesSpider:
 
             # 查询所有pgy_user数据
             logger.info("查询pgy_user表数据...")
-            users = session.query(PgyUser).filter(PgyUser.id > 114).all()
+            users = session.query(PgyUser).all()
             logger.info(f"共查询到 {len(users)} 个用户")
 
             if len(users) == 0:

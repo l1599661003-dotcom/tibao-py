@@ -500,8 +500,8 @@ class DouYinSpider:
                 return
 
             # 6. 预估CPE/CPM
-            self.other_api_data['expect_cpe'] = response_data.get('expect_cpe', {}).get('cpe_21_60', '')
-            self.other_api_data['expect_cpm'] = response_data.get('expect_cpm', {}).get('cpm_21_60', '')
+            self.other_api_data['expect_cpe'] = response_data.get('cpe_20_60', '')
+            self.other_api_data['expect_cpm'] = response_data.get('cpm_20_60', '')
             self.other_api_data['platform_hot_rate'] = response_data.get('platform_hot_rate', '')
             self.other_api_data['expect_read'] = response_data.get('vv', '')
 

@@ -285,7 +285,7 @@ class DouyinNoteSpider:
             max_scrolls = 20
             scroll_count = 0
             no_new_data_count = 0
-            cutoff_date = datetime.strptime('2025-11-11', '%Y-%m-%d')
+            cutoff_date = datetime.strptime('2025-10-12', '%Y-%m-%d')
 
             while scroll_count < max_scrolls:
                 logger.info(f"===== 第 {scroll_count + 1} 次加载 =====")
@@ -302,9 +302,9 @@ class DouyinNoteSpider:
                             last_note_date = datetime.fromtimestamp(last_note_time)
                             logger.info(f"最后一条笔记日期: {last_note_date.strftime('%Y-%m-%d')}")
 
-                            # 如果最后一条笔记日期 <= 2025-11-11，停止滚动，跳过该博主
-                            if last_note_date <= cutoff_date:
-                                logger.info(f"最后一条笔记日期({last_note_date.strftime('%Y-%m-%d')}) <= 2025-11-11，停止滚动，跳过该博主")
+                            # 如果最后一条笔记日期 < 2025-10-12，停止滚动，执行下一个博主
+                            if last_note_date < cutoff_date:
+                                logger.info(f"最后一条笔记日期({last_note_date.strftime('%Y-%m-%d')}) < 2025-10-12，停止滚动，执行下一个博主")
                                 # 先保存当前批次的数据
                                 self.save_notes(user, aweme_list)
                                 break
@@ -312,11 +312,24 @@ class DouyinNoteSpider:
                         self.save_notes(user, aweme_list)
                         no_new_data_count = 0
 
+                        # 如果第一次加载的笔记数少于20条，说明没有更多数据，不需要继续滚动
+                        if scroll_count == 0 and len(aweme_list) < 20:
+                            logger.info(f"第一次加载笔记数为 {len(aweme_list)} 条（小于20条），无需继续滚动，执行下一个博主")
+                            break
+
                         # 清空已处理的数据，准备接收下一批
                         self.api_data['post'] = []
                     else:
+                        # 第一次加载时，如果笔记列表为空，直接跳过该博主
+                        if scroll_count == 0:
+                            logger.info("第一次加载笔记列表为空，直接执行下一个博主")
+                            break
                         no_new_data_count += 1
                 else:
+                    # 第一次加载时，如果未捕获post接口或笔记列表为空，直接跳过该博主
+                    if scroll_count == 0:
+                        logger.info("第一次加载未捕获笔记数据，直接执行下一个博主")
+                        break
                     no_new_data_count += 1
                     logger.warning("未捕获post接口")
 

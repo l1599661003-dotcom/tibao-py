@@ -427,11 +427,11 @@ class PGYSpider:
                             self.page.wait_for_load_state('networkidle', timeout=5000)
                         except Exception as e:
                             logger.warning(f"等待页面加载完成时出错: {str(e)}")
-                            # 尝试等待DOM加载完成
-                            try:
-                                self.page.wait_for_load_state('domcontentloaded', timeout=5000)
-                            except Exception as dom_error:
-                                logger.warning(f"等待DOM加载完成也失败: {str(dom_error)}")
+                        # 尝试等待DOM加载完成
+                        try:
+                            self.page.wait_for_load_state('domcontentloaded', timeout=5000)
+                        except Exception as dom_error:
+                            logger.warning(f"等待DOM加载完成也失败: {str(dom_error)}")
                         
                         # 检查页面是否仍然有效
                         if self.page.is_closed():

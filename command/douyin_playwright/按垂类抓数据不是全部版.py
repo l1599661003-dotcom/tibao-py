@@ -14,6 +14,7 @@ from loguru import logger
 from playwright.sync_api import sync_playwright
 from unitl.common import Common
 
+
 def get_base_path():
     """获取基础路径，支持exe打包"""
     try:
@@ -22,16 +23,17 @@ def get_base_path():
     except Exception:
         return os.path.abspath("../..")
 
+
 def load_config():
     """加载配置文件"""
     config = configparser.ConfigParser()
-    
+
     # 尝试多个可能的配置文件路径
     config_paths = [
         os.path.join(get_base_path(), 'xingtu_spider_config.ini'),
         'xingtu_spider_config.ini'
     ]
-    
+
     config_loaded = False
     for config_path in config_paths:
         if os.path.exists(config_path):
@@ -39,11 +41,11 @@ def load_config():
             config_loaded = True
             logger.info(f"已加载配置文件: {config_path}")
             break
-    
+
     if not config_loaded:
         logger.error("未找到配置文件 xingtu_spider_config.ini")
         raise FileNotFoundError("配置文件不存在")
-    
+
     # 解析配置
     return {
         'category': {
@@ -57,21 +59,22 @@ def load_config():
         }
     }
 
+
 class XingtuSpider:
     """星图数据抓取器 - 简化版"""
-    
+
     def __init__(self):
         self.setup_logger()
         # 设置logger属性
         self.logger = logger
-        
+
         # 设置cookie和数据目录，支持exe打包
         base_path = get_base_path()
         self.cookie_file = os.path.join(base_path, 'cookies.json')
         self.data_dir = os.path.join(base_path, 'data')
         # 确保数据目录存在
         os.makedirs(self.data_dir, exist_ok=True)
-        
+
         self.base_url = 'https://www.xingtu.cn/ad/creator/market'
         self.is_logged_in = False
         self.api_data = {}  # 存储API数据
@@ -80,17 +83,18 @@ class XingtuSpider:
         self.api_response_processed = False  # 标记API响应是否已处理
         self.button_clicked = False  # 标记是否已点击确定按钮
         self.current_page = 1  # 当前页码
-        
+
         # 加载配置
         self.config = load_config()
-        logger.info(f"配置加载完成 - 品类: {self.config['category']['name']}, 价格区间: {self.config['price_range']['min_price']}-{self.config['price_range']['max_price']}")
-        
+        logger.info(
+            f"配置加载完成 - 品类: {self.config['category']['name']}, 价格区间: {self.config['price_range']['min_price']}-{self.config['price_range']['max_price']}")
+
         # 浏览器相关属性初始化
         self.playwright = None
         self.browser = None
         self.context = None
         self.page = None
-        
+
         # 数据统计
         self.total_authors = 0
         self.processed_pages = 0
@@ -158,12 +162,12 @@ class XingtuSpider:
             # 常见的验证码元素选择器
             captcha_selectors = [
                 'div[class*="captcha"]',  # 通用验证码容器
-                'div[class*="verify"]',   # 验证容器
-                'div[class*="slider"]',   # 滑块验证码
-                'iframe[src*="captcha"]', # iframe验证码
-                'div.secsdk-captcha',     # 字节系验证码
-                'div.verification',       # 验证弹窗
-                'div.verify-wrap',        # 验证包装
+                'div[class*="verify"]',  # 验证容器
+                'div[class*="slider"]',  # 滑块验证码
+                'iframe[src*="captcha"]',  # iframe验证码
+                'div.secsdk-captcha',  # 字节系验证码
+                'div.verification',  # 验证弹窗
+                'div.verify-wrap',  # 验证包装
             ]
 
             # 检查是否出现验证码
@@ -176,7 +180,8 @@ class XingtuSpider:
                         captcha_found = True
                         # 发送企业微信通知
                         try:
-                            self.send_wechat_notification(f"{self.config['category']['computer']}🔒 星图数据抓取检测到验证码！请尽快手动完成验证，程序已暂停等待...")
+                            self.send_wechat_notification(
+                                f"{self.config['category']['computer']}🔒 星图数据抓取检测到验证码！请尽快手动完成验证，程序已暂停等待...")
                         except:
                             pass
                         break
@@ -191,7 +196,7 @@ class XingtuSpider:
 
                 # 等待验证码消失，最多等待5分钟
                 max_wait_time = 300  # 5分钟
-                check_interval = 3   # 每3秒检查一次
+                check_interval = 3  # 每3秒检查一次
                 elapsed_time = 0
 
                 while elapsed_time < max_wait_time:
@@ -361,22 +366,22 @@ class XingtuSpider:
             if not self.is_logged_in:
                 logger.error("未登录状态")
                 return False
-            
+
             min_price = self.config['price_range']['min_price']
             max_price = self.config['price_range']['max_price']
             category = self.config['category']['name']
-            
+
             logger.info(f"开始抓取数据 - 品类: {category}, 价格区间: {min_price}-{max_price}")
-            
+
             # 设置筛选条件
             self._set_filters(min_price, max_price)
-            
+
             # 处理所有页面
             self._process_all_pages()
-            
+
             logger.info(f"🎉 抓取完成！共处理 {self.processed_pages} 页，累计新增 {self.total_authors} 条数据")
             return True
-            
+
         except Exception as e:
             logger.error(f"抓取数据失败: {e}")
             return False
@@ -385,65 +390,65 @@ class XingtuSpider:
         """设置筛选条件"""
         try:
             category = self.config['category']['name']
-            
+
             # 点击品类标签
             self.page.locator(self.config['category']['selector']).first.click()
             time.sleep(1)
-            
-            # 点击全选
-            self.page.locator("span:has-text('全选')").first.click()
-            time.sleep(2)
 
-            # 再次点击品类标签
-            self.page.locator(self.config['category']['selector']).first.click()
-            time.sleep(1)
-            
+            # # 点击全选
+            # self.page.locator("span:has-text('全选')").first.click()
+            # time.sleep(2)
+            #
+            # # 再次点击品类标签
+            # self.page.locator(self.config['category']['selector']).first.click()
+            # time.sleep(1)
+
             # 点击达人报价
             self.page.locator("span:has-text('达人报价')").first.click()
             time.sleep(2)
-            
+
             # 点击报价区间下拉框
             price_item = self.page.locator("div.price-group-item:has(div.label:has-text('报价区间'))").first
             price_item.locator("div.xt-dropdown").first.click()
             time.sleep(1)
-            
+
             # 设置价格区间
             inputs = self.page.locator("div.input-wrapper.el-input input[type='number']")
             inputs.nth(0).fill(str(min_price))
             inputs.nth(1).fill(str(max_price))
             time.sleep(1)
-            
+
             # 点击第一个确定按钮
             self.page.locator("div.custom-actions button.submit-btn:has-text('确定')").first.click()
             time.sleep(2)
-            
+
             # 清空API数据缓存（关键！）
             self.api_data = {}
             # 重置按钮点击状态
             self.button_clicked = False
-            
+
             # 点击第二个确定按钮
             self.page.locator("footer button.el-button--primary:has-text('确定')").first.click()
-            
+
             # 设置按钮点击标志
             self.button_clicked = True
             logger.info("已设置按钮点击标志，后续API响应将被处理")
-            
+
             try:
                 self.page.wait_for_load_state('networkidle', timeout=3000)  # 减少超时时间
             except Exception as e:
                 logger.warning(f"等待页面加载完成时出错: {str(e)}")
-            
+
             # 等待API数据加载
             time.sleep(2)  # 减少等待时间
-            
+
             # 检测并处理验证码
             if not self.check_and_handle_captcha():
                 logger.error("验证码处理失败")
                 raise Exception("验证码处理失败")
 
             logger.info(f"筛选条件设置完成 - 品类: {category}, 价格: {min_price}-{max_price}")
-            
+
         except Exception as e:
             logger.error(f"设置筛选条件失败: {e}")
             raise
@@ -451,31 +456,29 @@ class XingtuSpider:
     def _process_all_pages(self):
         """处理所有页面"""
         page_num = 1
-        
+
         # 处理第一页（点击确定后的当前页）
         logger.info(f"开始处理第 {page_num} 页数据...")
         self._process_current_page_data(page_num)
-        
+
         # 自动翻页处理后续页面
         while self._click_next_page():
             page_num += 1
             self.processed_pages = page_num
             logger.info(f"正在处理第 {page_num} 页数据...")
 
-            
             # 等待页面网络空闲
             try:
                 self.page.wait_for_load_state('networkidle', timeout=3000)  # 减少超时时间
             except Exception as e:
                 logger.warning(f"等待网络空闲时出错: {str(e)}")
-            
+
             # 处理当前页数据
             self._process_current_page_data(page_num)
-            
-            # 如果不是最后一页，等待一下再处理下一页
+
             wait_time = random.uniform(10, 15)
             time.sleep(wait_time)
-        
+
         logger.info(f"所有页面处理完成，共处理 {self.processed_pages} 页")
 
     def _process_current_page_data(self, page_num):
@@ -503,7 +506,8 @@ class XingtuSpider:
 
                     # 确保authors字段存在
                     if 'authors' not in api_data:
-                        logger.warning(f"API数据缺少authors字段: {list(api_data.keys()) if isinstance(api_data, dict) else 'Not a dict'}")
+                        logger.warning(
+                            f"API数据缺少authors字段: {list(api_data.keys()) if isinstance(api_data, dict) else 'Not a dict'}")
                         continue
 
                     for author_data in api_data['authors']:
@@ -544,7 +548,8 @@ class XingtuSpider:
                 if url in self.api_data:
                     del self.api_data[url]
 
-            logger.info(f"第 {page_num} 页数据处理完成: 总计新增 {total_authors_added} 条，跳过 {total_authors_skipped} 条重复数据")
+            logger.info(
+                f"第 {page_num} 页数据处理完成: 总计新增 {total_authors_added} 条，跳过 {total_authors_skipped} 条重复数据")
             return total_authors_added
 
         except Exception as e:
@@ -573,7 +578,6 @@ class XingtuSpider:
             logger.info("点击下一页按钮")
             next_page_button.click()
 
-            
             # 检测并处理验证码
             if not self.check_and_handle_captcha():
                 logger.warning('验证码处理失败，跳过当前页')
@@ -645,7 +649,8 @@ class XingtuSpider:
                                     # 立即处理数据并保存到数据库
                                     self._process_api_data_immediately(url, data)
                                 else:
-                                    logger.warning(f"API数据结构异常: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+                                    logger.warning(
+                                        f"API数据结构异常: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
 
                             # 标记API响应已处理
                             self.api_response_processed = True
@@ -710,7 +715,7 @@ class XingtuSpider:
         try:
             star_id = str(author_data.get('star_id', ''))
             nick_name = ""
-            
+
             # 尝试获取昵称用于日志显示
             try:
                 attribute_datas = author_data.get('attribute_datas', {})
@@ -722,16 +727,16 @@ class XingtuSpider:
                     nick_name = attr_data.get('nick_name', '')
             except:
                 nick_name = "未知"
-            
+
             # 检查是否已存在
             existing = session.query(DouyinSearchList).filter(
                 DouyinSearchList.star_id == star_id
             ).first()
-            
+
             if existing:
                 logger.info(f"📋 数据已存在，跳过: {nick_name} (ID: {star_id})")
                 return False
-                
+
             # 创建新记录
             new_record = DouyinSearchList(
                 star_id=star_id,
@@ -741,11 +746,11 @@ class XingtuSpider:
                 task_infos=json.dumps(author_data.get('task_infos', {}), ensure_ascii=False),
                 category=self.config['category']['name'],
             )
-            
+
             session.add(new_record)
             logger.info(f"✅ 新增数据: {nick_name} (ID: {star_id}) - 品类: {self.config['category']['name']}")
             return True
-            
+
         except Exception as e:
             logger.error(f"❌ 保存数据失败: {e}")
             session.rollback()

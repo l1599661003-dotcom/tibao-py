@@ -11,7 +11,7 @@ class GetPGYMediaAll:
     def __init__(self):
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-            "cookie": 'a1=19a5eb1a425pmd1q4v02v1zlqfls7z25o8f34547h50000131391; webId=58e94014b58a170000190f4b2283aaaf; customer-sso-sid=68c517569988680951332869hzm0ncku1hk7oudo; x-user-id-pgy.xiaohongshu.com=68fb0f1c1558000000000001; customerClientId=064982114373578; xsecappid=ratlin; solar.beaker.session.id=AT-68c5175725519646781931555rzlmzneowaiiowl; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c5175725519646781931555rzlmzneowaiiowl; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c5175725519646781931555rzlmzneowaiiowl; acw_tc=0a42252317631247772785371e8c7a86e54ceaa6cdc9f66bf51b34b4e33f62; loadts=1763125630940',
+            'cookie': 'a1=19a5ead69f4zkdfll2met4caij5qsa4u5h4kzfkqg50000152304; webId=a482ce8dfc97a466250424206503fa86; customerClientId=505888866352470; x-user-id-pgy.xiaohongshu.com=68f9ddc3155e000000000001; xsecappid=ratlin; customer-sso-sid=68c5175735989617408737285jrenefomiqvidas; solar.beaker.session.id=AT-68c5175735989617408737295hcvofvvuloyuyns; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c5175735989617408737295hcvofvvuloyuyns; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c5175735989617408737295hcvofvvuloyuyns; acw_tc=0a4269db17636189803563777e61ac015f8cd8cf3920c3d5df210db85f65ef; loadts=1763618984928'
         }
 
     def _extract_tags(self, blogger):
@@ -32,21 +32,21 @@ class GetPGYMediaAll:
                 taxonomy2_tags = content_tag.get('taxonomy2Tags', [])
                 if taxonomy2_tags and isinstance(taxonomy2_tags, list):
                     tags_list.extend([tag for tag in taxonomy2_tags if tag])
-        
+
         # 处理 featureTags
         feature_tags = blogger.get('featureTags', [])
         if feature_tags and isinstance(feature_tags, list):
             tags_list.extend([tag for tag in feature_tags if tag])
-        
+
         # 拼接所有标签，用中文逗号分隔
         return '、'.join(tags_list) if tags_list else ''
 
     def handle(self):
-        base_data = {"searchType":0,"column":"comprehensiverank","sort":"desc","pageSize":20,"brandUserId":"62b58a79000000001b024664","marketTarget":None,"audienceGroup":[],"contentTag":["家居装饰","花艺园艺","家居用品","装修","家具","室内设计","家居家装其他","居家经验"],"personalTags":[],"gender":None,"location":None,"signed":-1,"featureTags":[],"fansNumberLower":50000,"fansNumberUpper":None,"fansAge":0,"fansGender":0,"accumCommonImpMedinNum30d":[],"readMidNor30":[],"interMidNor30":[],"thousandLikePercent30":[],"noteType":0,"videoPriceLower":3000,"videoPriceUpper":8500,"progressOrderCnt":[],"tradeType":"不限","tradeReportBrandIdSet":[],"excludedTradeReportBrandId":False,"estimateCpuv30d":[],"inStar":0,"firstIndustry":"","secondIndustry":"","newHighQuality":0,"filterIntention":False,"flagList":[{"flagType":"HAS_BRAND_COOP_BUYER_AUTH","flagValue":"0"},{"flagType":"IS_HIGH_QUALITY","flagValue":"0"}],"activityCodes":[],"excludeLowActive":True,"fansNumUp":0,"excludedTradeReportBrand":False,"excludedTradeInviteReportBrand":False,"filterList":[]}
+        base_data = {"searchType":0,"column":"mEngagementNum","sort":"desc","pageNum":1,"pageSize":20,"brandUserId":"62b58a79000000001b024664","marketTarget":None,"audienceGroup":[],"contentTag":["美食"],"personalTags":[],"gender":None,"location":["中国 重庆"],"signed":-1,"featureTags":[],"fansNumberLower":1000,"fansNumberUpper":20000,"fansAge":0,"fansGender":0,"accumCommonImpMedinNum30d":[],"readMidNor30":[],"interMidNor30":[],"thousandLikePercent30":[],"noteType":1,"progressOrderCnt":[],"tradeType":"不限","tradeReportBrandIdSet":[],"excludedTradeReportBrandId":False,"estimateCpuv30d":[],"inStar":0,"firstIndustry":"","secondIndustry":"","newHighQuality":0,"filterIntention":False,"flagList":[{"flagType":"HAS_BRAND_COOP_BUYER_AUTH","flagValue":"0"},{"flagType":"IS_HIGH_QUALITY","flagValue":"0"}],"activityCodes":[],"excludeLowActive":True,"fansNumUp":0,"excludedTradeReportBrand":False,"excludedTradeInviteReportBrand":False,"filterList":[]}
 
         all_data = []  # 存储所有博主数据
 
-        for i in range(1, 200):
+        for i in range(1, 30):
             data = base_data.copy()
             data['pageNum'] = i
 

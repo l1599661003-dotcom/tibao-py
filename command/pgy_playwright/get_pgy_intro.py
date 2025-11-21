@@ -1,16 +1,14 @@
 """
- 小红书博主简介抓取脚本
- 从API获取博主列表，访问小红书主页抓取简介，并同步到数据API
- """
-import logging
+小红书博主简介抓取脚本
+从API获取博主列表，访问小红书主页抓取简介，并同步到数据API
+支持多台机器并行抓取
+"""
 import re
 import time
-import traceback
+import argparse
 from typing import Dict, List, Optional
-from datetime import datetime
 
 import requests
-from requests import RequestException
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -19,40 +17,19 @@ from urllib3.util.retry import Retry
 class Config:
     # API URLs
     BLOGGER_LIST_API = "https://tianji.fangpian999.com/api/admin/creatorBusiness/getNewerCreator"
-    SYNC_API_URL = "http://47.104.76.46:19000/api/v1/sync/spider/data"
+    # BLOGGER_LIST_API = "http://localhost:5666/api/admin/creatorBusiness/getNewerCreator"
+    SYNC_API_URL = "https://tianji.fangpian999.com/api/admin/creatorBusiness/saveCreatorIntro"
 
     # 请求参数
-    BLOGGER_TYPE = 3
-    PAGE = 1
-    PAGE_SIZE = 9999
+    BLOGGER_TYPE = 4
+    PAGE_SIZE = 100  # 每次抓取100条
+    TOTAL_MACHINES = 4  # 总机器数
     REQUEST_TIMEOUT = 30
-    REQUEST_DELAY = 1.0  # 请求间隔（秒）
+    REQUEST_DELAY = 8  # 请求间隔（秒）
 
     # 重试配置
     MAX_RETRIES = 3
     RETRY_BACKOFF_FACTOR = 0.5
-
-    # 日志配置
-    LOG_DIR = "command/pgy_playwright/logs"
-    LOG_LEVEL = logging.INFO
-
-
-def setup_logging():
-    """配置日志系统"""
-    import os
-    os.makedirs(Config.LOG_DIR, exist_ok=True)
-
-    log_filename = f"{Config.LOG_DIR}/pgy_intro_{datetime.now().strftime('%Y-%m-%d')}.log"
-
-    logging.basicConfig(
-        level=Config.LOG_LEVEL,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_filename, encoding='utf-8'),
-            logging.StreamHandler()
-        ]
-    )
-    return logging.getLogger(__name__)
 
 
 # 小红书请求头
@@ -76,6 +53,7 @@ XHS_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
 }
 
+
 def create_session_with_retry() -> requests.Session:
     """创建带重试机制的 requests session"""
     session = requests.Session()
@@ -91,31 +69,10 @@ def create_session_with_retry() -> requests.Session:
     return session
 
 
-def create_payload_template(blogger_id: str = None, creator_intro: str = None) -> Dict:
-    """创建标准 payload 模板"""
-    blogger_data = []
-    if blogger_id and creator_intro:
-        blogger_data = [{"platform_user_id": blogger_id, "creator_intro": creator_intro}]
-
-    return {
-        "apis": [
-            {"tb_name": "blogger_info", "tb_data": blogger_data},
-            {"tb_name": "blogger_note_rate", "tb_data": []},
-            {"tb_name": "blogger_data_summary", "tb_data": []},
-            {"tb_name": "blogger_note_detail", "tb_data": []},
-            {"tb_name": "blogger_fans_summary", "tb_data": []},
-            {"tb_name": "blogger_fans_profile", "tb_data": []},
-            {"tb_name": "blogger_fans_history", "tb_data": []},
-        ],
-        "client_id": 1
-    }
-
-
-def fetch_blogger_list(logger: logging.Logger, session: requests.Session) -> Optional[List[Dict]]:
+def fetch_blogger_list(session: requests.Session, page: int) -> Optional[List[Dict]]:
     """从API获取博主列表"""
-    api_url = f"{Config.BLOGGER_LIST_API}?type={Config.BLOGGER_TYPE}&page={Config.PAGE}&pageSize={Config.PAGE_SIZE}"
-
-    logger.info(f"正在请求API获取博主列表: {api_url}")
+    api_url = f"{Config.BLOGGER_LIST_API}?type={Config.BLOGGER_TYPE}&page={page}&pageSize={Config.PAGE_SIZE}"
+    print(f"正在请求API获取博主列表: {api_url} (第{page}页)")
 
     try:
         headers = {"Content-Type": "application/json"}
@@ -124,49 +81,44 @@ def fetch_blogger_list(logger: logging.Logger, session: requests.Session) -> Opt
 
         data = response.json()
         records = data.get('data', [])
-        logger.info(f"成功获取 {len(records)} 条博主记录")
+        print(f"成功获取 {len(records)} 条博主记录")
         return records
 
-    except RequestException as e:
-        logger.error(f"获取博主列表失败: {e}")
-        return None
-    except (KeyError, ValueError) as e:
-        logger.error(f"解析API响应失败: {e}")
+    except Exception as e:
+        print(f"获取博主列表失败: {e}")
         return None
 
 
-def extract_user_intro(html: str, blogger_id: str, logger: logging.Logger) -> Optional[str]:
+def extract_user_intro(html: str, blogger_id: str) -> Optional[str]:
     """从HTML中提取用户简介"""
     match = re.search(r'<div class="user-desc"[^>]*>(.*?)</div>', html, re.S)
 
     if match:
         user_desc = match.group(1).strip()
-        logger.info(f"博主 {blogger_id} 简介: {user_desc}")
+        print(f"博主 {blogger_id} 简介: {user_desc}")
         return user_desc
     else:
-        logger.warning(f"未找到博主 {blogger_id} 的简介")
-        if logger.level == logging.DEBUG:
-            logger.debug(f"HTML片段: {html[:1000]}...")
+        print(f"未找到博主 {blogger_id} 的简介")
         return None
 
 
-def fetch_blogger_intro(blogger_id: str, logger: logging.Logger, session: requests.Session) -> Optional[str]:
+def fetch_blogger_intro(blogger_id: str, session: requests.Session) -> Optional[str]:
     """获取博主简介"""
     url = f"https://www.xiaohongshu.com/user/profile/{blogger_id}"
-    logger.info(f"访问博主主页: {url}")
+    print(f"访问博主主页: {url}")
 
     try:
         time.sleep(Config.REQUEST_DELAY)
         response = session.get(url, headers=XHS_HEADERS, timeout=Config.REQUEST_TIMEOUT)
         response.raise_for_status()
-        return extract_user_intro(response.text, blogger_id, logger)
+        return extract_user_intro(response.text, blogger_id)
 
-    except RequestException as e:
-        logger.error(f"访问博主 {blogger_id} 主页失败: {e}")
+    except Exception as e:
+        print(f"访问博主 {blogger_id} 主页失败: {e}")
         return None
 
 
-def sync_single_record_to_api(payload: Dict, logger: logging.Logger, session: requests.Session) -> bool:
+def sync_single_record_to_api(payload: Dict, session: requests.Session) -> bool:
     """同步单条记录到API"""
     try:
         headers = {"Content-Type": "application/json"}
@@ -181,94 +133,135 @@ def sync_single_record_to_api(payload: Dict, logger: logging.Logger, session: re
             try:
                 response_data = response.json()
                 if response_data.get('code') == 200:
-                    logger.info("数据同步成功")
+                    print("数据同步成功")
                     return True
                 else:
-                    logger.error(f"数据同步失败，API返回错误: {response_data}")
+                    print(f"数据同步失败，API返回错误: {response_data}")
                     return False
             except ValueError:
-                logger.error(f"API返回非JSON响应: {response.text[:200]}")
+                print(f"API返回非JSON响应: {response.text[:200]}")
                 return False
         else:
-            logger.error(f"数据同步失败，HTTP状态码: {response.status_code}, 响应: {response.text[:200]}")
+            print(f"数据同步失败，HTTP状态码: {response.status_code}, 响应: {response.text[:200]}")
             return False
 
-    except RequestException as e:
-        logger.error(f"数据同步请求失败: {e}")
-        return False
     except Exception as e:
-        logger.error(f"数据同步异常: {e}")
-        logger.debug(traceback.format_exc())
+        print(f"数据同步请求失败: {e}")
         return False
 
 
-def process_blogger(record: Dict, logger: logging.Logger, session: requests.Session) -> bool:
+def process_blogger(record: Dict, session: requests.Session) -> bool:
     """处理单个博主"""
     blogger_id = record.get('platform_user_id')
 
     if not blogger_id:
-        logger.warning(f"记录缺少 platform_user_id: {record}")
+        print(f"记录缺少 platform_user_id: {record}")
         return False
 
-    logger.info(f"开始处理博主ID: {blogger_id}")
+    print(f"开始处理博主ID: {blogger_id}")
 
     try:
-        user_intro = fetch_blogger_intro(blogger_id, logger, session)
+        user_intro = fetch_blogger_intro(blogger_id, session)
 
         if user_intro:
-            payload = create_payload_template(blogger_id, user_intro)
-            return sync_single_record_to_api(payload, logger, session)
+            data = {
+                'platform_user_id': blogger_id,
+                'creator_intro': user_intro
+            }
+            return sync_single_record_to_api(data, session)
         else:
-            logger.warning(f"博主 {blogger_id} 未找到简介，跳过同步")
+            print(f"博主 {blogger_id} 未找到简介，跳过同步")
             return False
 
     except Exception as e:
-        logger.error(f"处理博主 {blogger_id} 时发生异常: {e}")
-        logger.debug(traceback.format_exc())
+        print(f"处理博主 {blogger_id} 时发生异常: {e}")
         return False
 
 
 def main():
     """主函数"""
-    logger = setup_logging()
-    logger.info("=" * 60)
-    logger.info("小红书博主简介抓取脚本启动")
-    logger.info("=" * 60)
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description='小红书博主简介抓取脚本')
+    parser.add_argument('--machine-id', type=int, required=True,
+                        help='机器编号 (1-10)')
+    parser.add_argument('--max-rounds', type=int, default=None,
+                        help='最大抓取轮次，不设置则一直抓取直到没有数据')
+    args = parser.parse_args()
+
+    machine_id = args.machine_id
+    max_rounds = args.max_rounds
+
+    # 验证机器编号
+    if machine_id < 1 or machine_id > Config.TOTAL_MACHINES:
+        print(f"错误：机器编号必须在 1-{Config.TOTAL_MACHINES} 之间")
+        return
+
+    print("=" * 60)
+    print(f"小红书博主简介抓取脚本启动 - 机器 {machine_id}")
+    print("=" * 60)
 
     session = create_session_with_retry()
-    total_count = 0
-    success_count = 0
-    fail_count = 0
+    round_num = 0  # 当前轮次
+    total_success = 0
+    total_fail = 0
 
     try:
-        records = fetch_blogger_list(logger, session)
+        while True:
+            round_num += 1
 
-        if not records:
-            logger.error("未获取到博主列表，程序退出")
-            return
+            # 如果设置了最大轮次，检查是否超过
+            if max_rounds and round_num > max_rounds:
+                print(f"已完成 {max_rounds} 轮抓取，程序退出")
+                break
 
-        total_count = len(records)
+            # 计算当前应该抓取的页码
+            # 第1轮：机器1抓page=1, 机器2抓page=2, ..., 机器10抓page=10
+            # 第2轮：机器1抓page=11, 机器2抓page=12, ..., 机器10抓page=20
+            current_page = machine_id + (round_num - 1) * Config.TOTAL_MACHINES
 
-        for index, record in enumerate(records, 1):
-            logger.info(f"进度: {index}/{total_count}")
+            print("\n" + "=" * 60)
+            print(f"第 {round_num} 轮 - 机器 {machine_id} - 抓取第 {current_page} 页")
+            print("=" * 60)
 
-            if process_blogger(record, logger, session):
-                success_count += 1
-            else:
-                fail_count += 1
+            records = fetch_blogger_list(session, current_page)
 
-        logger.info("=" * 60)
-        logger.info(f"处理完成！总计: {total_count}, 成功: {success_count}, 失败: {fail_count}")
-        logger.info("=" * 60)
+            if not records:
+                print("未获取到博主列表，程序退出")
+                break
+
+            # 如果返回的记录数为0，说明已经没有更多数据
+            if len(records) == 0:
+                print("没有更多数据了，程序退出")
+                break
+
+            success_count = 0
+            fail_count = 0
+
+            for index, record in enumerate(records, 1):
+                print(f"进度: {index}/{len(records)}")
+
+                if process_blogger(record, session):
+                    success_count += 1
+                    total_success += 1
+                else:
+                    fail_count += 1
+                    total_fail += 1
+
+            print(f"本轮完成！成功: {success_count}, 失败: {fail_count}")
+            print(f"总计：成功: {total_success}, 失败: {total_fail}")
+
+        print("=" * 60)
+        print(f"所有任务完成！总计: 成功 {total_success}, 失败 {total_fail}")
+        print("=" * 60)
 
     except KeyboardInterrupt:
-        logger.warning("程序被用户中断")
+        print("\n程序被用户中断")
+        print(f"当前统计：成功 {total_success}, 失败 {total_fail}")
     except Exception as e:
-        logger.error(f"程序执行异常: {e}")
-        logger.debug(traceback.format_exc())
+        print(f"程序执行异常: {e}")
     finally:
         session.close()
-        logger.info("程序结束")
+        print("程序结束")
 
 
 if __name__ == '__main__':

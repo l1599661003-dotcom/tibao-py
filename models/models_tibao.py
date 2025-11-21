@@ -4,6 +4,7 @@ import time
 
 from sqlalchemy import Column, Integer, String, TIMESTAMP, DateTime, Numeric, Text, Boolean, Float, BigInteger, \
     ForeignKey, DECIMAL, func, text, Double
+from sqlalchemy.dialects.mssql import JSON
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
@@ -1607,14 +1608,14 @@ class DouyinSearchList(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='主键ID')
     import_status = Column(BigInteger)
-    attribute_datas = Column(Text, nullable=True, comment='属性数据(JSON或文本)')
+    attribute_datas = Column(JSON, nullable=True, comment='属性数据(JSON或文本)')
     extra_data = Column(Text, nullable=True, comment='额外数据(JSON或文本)')
     items = Column(Text, nullable=True, comment='项目数据(JSON或文本)')
     star_id = Column(String(255), comment='星标ID')
     task_infos = Column(Text, nullable=True, comment='任务信息(JSON或文本)')
     category = Column(String(100), nullable=True, comment='博主品类')
-    created_at = Column(TIMESTAMP, nullable=True, comment='创建时间')
-    updated_at = Column(TIMESTAMP, nullable=True, comment='更新时间')
+    created_at = Column(DateTime, nullable=True, comment='创建时间')
+    updated_at = Column(DateTime, nullable=True, comment='更新时间')
     status = Column(Integer, nullable=True, default=0, comment='状态：0-未处理，1-处理成功，2-无创作能力')
 
 class FpCreator(Base):
@@ -1715,3 +1716,30 @@ class FpCreatorFansSummary(Base):
 
     create_time = Column(Integer, nullable=True, comment='创建时间')
     update_time = Column(Integer, nullable=True, comment='更新时间')
+
+class FpCreatorNoteRate(Base):
+    __tablename__ = 'fp_creator_note_rate'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    platform_user_id = Column(BigInteger, nullable=False)
+    business = Column(BigInteger, nullable=False)
+
+    # 中位数表现指标
+    imp_median = Column(Integer)
+    read_median = Column(Integer)
+    mengagement_num = Column(Integer)
+    like_median = Column(Integer)
+    collect_median = Column(Integer)
+    comment_median = Column(Integer)
+    share_median = Column(Integer)
+    mfollow_cnt = Column(Integer)
+
+    interaction_rate = Column(DECIMAL(10, 4))
+    video_full_view_rate = Column(DECIMAL(10, 4))
+    picture3s_view_rate = Column(DECIMAL(10, 4))
+
+    thousand_like_percent = Column(DECIMAL(10, 4))
+    hundred_like_percent = Column(DECIMAL(10, 4))
+
+    create_time = Column(Integer)
+    update_time = Column(Integer)

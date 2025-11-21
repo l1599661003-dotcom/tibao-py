@@ -7,11 +7,12 @@ from datetime import datetime
 import sys
 from typing import Optional, Dict, Any, List
 import traceback
+import requests
 
 import playwright
 from models.models_tibao import DouYinKolRealization, DouYinKolNote, DouyinSearchList
-# from core.database_text_tibao_2 import session
-from core.localhost_fp_project import session
+from core.database_text_tibao_2 import session
+# from core.localhost_fp_project import session
 import pandas as pd
 from loguru import logger
 from playwright.sync_api import sync_playwright
@@ -66,7 +67,8 @@ def load_config():
     return {
         'PGY_LOGIN_CONFIG': {
             'page': config.get('PGY_LOGIN', 'page'),
-            'page_size': config.get('PGY_LOGIN', 'page_size')
+            'page_size': config.get('PGY_LOGIN', 'page_size'),
+            'computer': config.get('PGY_LOGIN', 'computer')
         },
     }
 
@@ -75,6 +77,7 @@ class DouYinSpider:
         self.setup_logger()
         # 设置logger属性
         self.logger = logger
+        self.config = load_config()
         # 设置cookie和数据目录，支持exe打包
         base_path = get_base_path()
         self.cookie_file = os.path.join(base_path, 'cookies.json')
@@ -97,6 +100,9 @@ class DouYinSpider:
             'platform_info': {},
             'commerce_info': {}
         }
+
+        # 企业微信webhook地址
+        self.webhook_url = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=b3b0cdf5-62b6-49d7-80d7-6f741c3c2c4d"
 
         # 浏览器相关属性初始化
         self.playwright = None
@@ -139,6 +145,11 @@ class DouYinSpider:
                 self.logger.error(f"访问页面超时: {kol_url}")
                 return 0
 
+            # 检测并处理验证码
+            if not self.check_and_handle_captcha():
+                self.logger.error("验证码处理失败")
+                return 0
+
             self.common.random_sleep(3, 4)
             # 点击创作能力标签
             creative_tab = self.page.locator("div.el-tabs__nav >> div:has-text('创作能力')")
@@ -165,6 +176,11 @@ class DouYinSpider:
                     wait_time = random.randint(8, 12)
                     self.logger.info(f"等待 {wait_time} 秒，确保所有API请求完成...")
                     time.sleep(wait_time)
+
+                    # 检测并处理验证码
+                    if not self.check_and_handle_captcha():
+                        self.logger.error("验证码处理失败")
+                        return 0
 
                 except Exception as e:
                     self.logger.warning(f"检查点击效果时出错: {str(e)}")
@@ -663,6 +679,117 @@ class DouYinSpider:
             session.rollback()
             raise
 
+
+    def send_wechat_notification(self, message):
+        """发送企业微信通知"""
+        try:
+            data = {
+                "msgtype": "text",
+                "text": {
+                    "content": message
+                }
+            }
+            response = requests.post(self.webhook_url, json=data, timeout=5)
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('errcode') == 0:
+                    self.logger.info("✅ 企业微信通知发送成功")
+                    return True
+                else:
+                    self.logger.warning(f"企业微信通知发送失败: {result}")
+                    return False
+            else:
+                self.logger.warning(f"企业微信通知发送失败，状态码: {response.status_code}")
+                return False
+        except Exception as e:
+            self.logger.error(f"发送企业微信通知时出错: {str(e)}")
+            return False
+
+    def check_and_handle_captcha(self):
+        """检测并处理验证码"""
+        try:
+            self.logger.info("检测是否出现验证码...")
+
+            # 常见的验证码元素选择器
+            captcha_selectors = [
+                'div[class*="captcha"]',
+                'div[class*="verify"]',
+                'div[class*="slider"]',
+                'iframe[src*="captcha"]',
+                'div.secsdk-captcha',
+                'div.verification',
+                'div.verify-wrap',
+            ]
+
+            # 检查是否出现验证码
+            captcha_found = False
+            for selector in captcha_selectors:
+                try:
+                    captcha_element = self.page.locator(selector).first
+                    if captcha_element.is_visible(timeout=1000):
+                        self.logger.warning(f"⚠️  检测到验证码！选择器: {selector}")
+                        captcha_found = True
+                        # 发送企业微信通知
+                        try:
+                            computer_name = self.config['PGY_LOGIN_CONFIG'].get('computer', '')
+                            self.send_wechat_notification(f"{computer_name}🔒 抖音KOL数据抓取检测到验证码！\n请尽快手动完成验证，程序已暂停等待...")
+                        except Exception as notify_error:
+                            self.logger.error(f"发送企业微信通知失败: {str(notify_error)}")
+                            pass
+                        break
+                except:
+                    continue
+
+            if captcha_found:
+                self.logger.warning("=" * 60)
+                self.logger.warning("🔒 检测到验证码，请手动完成验证！")
+                self.logger.warning("验证完成后程序将自动继续...")
+                self.logger.warning("=" * 60)
+
+                # 等待验证码消失，最多等待5分钟
+                max_wait_time = 300
+                check_interval = 3
+                elapsed_time = 0
+
+                while elapsed_time < max_wait_time:
+                    time.sleep(check_interval)
+                    elapsed_time += check_interval
+
+                    # 检查验证码是否已消失
+                    all_disappeared = True
+                    for selector in captcha_selectors:
+                        try:
+                            element = self.page.locator(selector).first
+                            if element.is_visible(timeout=500):
+                                all_disappeared = False
+                                break
+                        except:
+                            continue
+
+                    if all_disappeared:
+                        self.logger.info(f"✅ 验证码已完成！(等待了 {elapsed_time} 秒)")
+                        # 发送完成通知
+                        try:
+                            self.send_wechat_notification(f"✅ 验证码已完成！程序继续执行 (等待了 {elapsed_time} 秒)")
+                        except:
+                            pass
+                        time.sleep(2)
+                        return True
+
+                    # 每30秒提示一次
+                    if elapsed_time % 30 == 0:
+                        self.logger.info(f"仍在等待验证码完成... (已等待 {elapsed_time}/{max_wait_time} 秒)")
+
+                self.logger.error("❌ 验证码等待超时（5分钟）")
+                return False
+            else:
+                self.logger.info("✓ 未检测到验证码")
+                return True
+
+        except Exception as e:
+            self.logger.error(f"检测验证码时出错: {str(e)}")
+            return True
+
     def setup_logger(self):
         """设置日志配置，支持exe打包"""
         # 设置日志目录
@@ -738,7 +865,7 @@ class DouYinSpider:
 
                 # 检查是否存在用户头像元素
                 self.logger.info("验证Cookie是否有效...")
-                
+
                 login_detected = False
 
                 try:
@@ -747,12 +874,26 @@ class DouYinSpider:
                     self.logger.info(f"选择器 '{".user-avatar"}' 找到 {count} 个元素")
 
                     if count > 0:
-                        if element.first.is_visible(timeout=3000):
-                            self.logger.info(f"✅ 通过选择器 '{".user-avatar"}' 检测到Cookie有效")
-                            login_detected = True
+                        # 检查所有元素，只要有一个可见就认为登录成功
+                        self.logger.info(f"开始检查 {count} 个 .user-avatar 元素的可见性...")
+                        all_elements = element.all()
+                        for i, elem in enumerate(all_elements):
+                            try:
+                                if elem.is_visible(timeout=1000):
+                                    self.logger.info(f"第 {i + 1} 个 .user-avatar 元素可见，Cookie有效")
+                                    login_detected = True
+                                    break
+                                else:
+                                    self.logger.debug(f"第 {i + 1} 个 .user-avatar 元素不可见")
+                            except Exception as elem_error:
+                                self.logger.debug(f"第 {i + 1} 个 .user-avatar 元素检查出错: {str(elem_error)}")
+                                continue
+
+                        if not login_detected:
+                            self.logger.warning(f"找到 {count} 个 .user-avatar 元素，但都不可见")
                 except Exception as e:
                     self.logger.debug(f"选择器 '{".user-avatar"}' 检查出错: {str(e)}")
-                
+
                 # 更新登录状态
                 if login_detected:
                     self.is_logged_in = True
@@ -792,8 +933,7 @@ class DouYinSpider:
                 self.common.random_sleep(20, 30)
                 # 尝试多个可能的选择器
                 selectors = [
-                    ".text-avatar",           # 抖音头像
-                    ".user-avatar",           # 通用头像
+                    ".text-avatar"
                 ]
                 
                 # 设置最大等待时间(5分钟)
@@ -1158,7 +1298,15 @@ def process_kol(spider: DouYinSpider, kol: DouyinSearchList):
     """处理单个KOL"""
     # 从attribute_datas中提取KOL名称和构建链接
     try:
-        attribute_data = json.loads(kol.attribute_datas)
+        # 检查attribute_datas是字典还是字符串
+        if isinstance(kol.attribute_datas, str):
+            attribute_data = json.loads(kol.attribute_datas)
+        elif isinstance(kol.attribute_datas, dict):
+            attribute_data = kol.attribute_datas
+        else:
+            spider.logger.error(f"attribute_datas类型错误: {type(kol.attribute_datas)}")
+            return False
+
         kol_name = attribute_data.get('nick_name', '')
         star_id = kol.star_id
         douyin_link = f"https://www.xingtu.cn/ad/creator/author-homepage/douyin-video/{star_id}"
@@ -1166,7 +1314,7 @@ def process_kol(spider: DouYinSpider, kol: DouyinSearchList):
         if not kol_name:
             spider.logger.warning(f"无法从attribute_datas中获取KOL名称，使用star_id: {star_id}")
             kol_name = f"KOL_{star_id}"
-    except (json.JSONDecodeError, AttributeError) as e:
+    except (json.JSONDecodeError, AttributeError, TypeError) as e:
         spider.logger.error(f"解析attribute_datas失败: {str(e)}")
         return False
 

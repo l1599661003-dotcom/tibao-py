@@ -301,6 +301,56 @@ class QgNoteInfo(Base):
     create_time = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), comment='记录创建时间')
     update_time = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'), comment='记录更新时间')
 
+class QgBrandBusinessNote(Base):
+    """千瓜品牌商业笔记数据表"""
+    __tablename__ = 'qg_brand_business_note'
+    __table_args__ = (
+        UniqueConstraint('note_id', 'keyword_tag', name='uniq_note_id_keyword'),
+        Index('idx_note_id', 'note_id'),
+        Index('idx_blogger_id', 'blogger_id'),
+        Index('idx_date_code', 'date_code'),
+        Index('idx_keyword_tag', 'keyword_tag'),
+        Index('idx_brand_id', 'brand_id'),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='自增主键')
+    note_id = Column(BigInteger, nullable=False, comment='笔记ID（NoteId）')
+    date_code = Column(Integer, comment='日期代码（DateCode）')
+    note_id_key = Column(String(64), comment='笔记唯一短Key（NoteIdKey）')
+    active_count = Column(Integer, default=0, comment='活跃数（ActiveCount）')
+    ad_price = Column(BigInteger, default=0, comment='广告价格（AdPrice）')
+    ad_price_desc = Column(String(100), comment='广告价格描述（AdPriceDesc）')
+    ad_price_update_status = Column(Integer, default=0, comment='广告价格更新状态（AdPriceUpdateStatus）')
+    blogger_id = Column(BigInteger, comment='博主ID（BloggerId）')
+    blogger_id_key = Column(String(64), comment='博主Key（BloggerIdKey）')
+    blogger_nickname = Column(String(255), comment='博主昵称（BloggerNickName）')
+    blogger_prop = Column(String(100), comment='博主等级称号（BloggerProp）')
+    collected_count = Column(Integer, default=0, comment='收藏数（CollectedCount）')
+    comments_count = Column(Integer, default=0, comment='评论数（CommentsCount）')
+    cooperate_binds_name = Column(String(255), comment='合作品牌名称（CooperateBindsName）')
+    cover_image = Column(String(500), comment='封面图链接（CoverImage）')
+    current_user_is_favorite = Column(SmallInteger, default=0, comment='当前用户是否收藏（CurrentUserIsFavorite）')
+    fans = Column(Integer, default=0, comment='粉丝数（Fans）')
+    is_ad_note = Column(SmallInteger, default=0, comment='是否广告笔记（IsAdNote）')
+    is_business = Column(SmallInteger, default=0, comment='是否为商业笔记（IsBusiness）')
+    like_collect = Column(Integer, default=0, comment='点赞收藏数（LikeCollect）')
+    liked_count = Column(Integer, default=0, comment='点赞数（LikedCount）')
+    monitor_id = Column(BigInteger, default=0, comment='监控ID（MonitorId）')
+    note_type = Column(String(50), comment='笔记类型（NoteType）')
+    price_type = Column(String(50), comment='价格类型（PriceType）')
+    publish_time = Column(DateTime, comment='发布时间（PublishTime）')
+    title = Column(Text, comment='发布时间（PublishTime）')
+    share_count = Column(Integer, default=0, comment='分享数（ShareCount）')
+    view_count = Column(Integer, default=0, comment='分享数（ShareCount）')
+    small_avatar = Column(String(500), comment='博主头像（SmallAvatar）')
+    tag = Column(String(255), comment='笔记标签（Tag）')
+    keyword_tag = Column(String(100), comment='搜索关键词标签')
+    brand_id = Column(String(100), comment='品牌ID')
+    brand_name = Column(String(255), comment='品牌名称')
+    create_time = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), comment='记录创建时间')
+    update_time = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'), comment='记录更新时间')
+
+
 class BusinessContractPhone(Base):
     __tablename__ = 'business_contract_phone'
 
@@ -399,9 +449,10 @@ class PgyNoteDetail(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='ID')
     pgy_id = Column(BigInteger, comment='博主id')
     note_id = Column(String(32), comment='笔记ID')
-    note_title = Column(String(128), comment='笔记标题')
+    note_title = Column(Text, comment='笔记标题')
     note_date = Column(String(16), comment='日期')
     note_type = Column(String(255), comment='笔记类型')
+    xsec_token = Column(String(255), comment='笔记类型')
     like_num = Column(Integer, comment='点赞数')
     collect_num = Column(Integer, comment='收藏数')
     share_num = Column(Integer, comment='分享数')
@@ -569,6 +620,7 @@ class BloggerInfo(Base):
     nickname = Column(String(100))
     homepage_link = Column(String(255))
     daily_read_median = Column(Integer)
+    status = Column(Integer)
     daily_engagement_median = Column(Integer)
     gender = Column(String(20))
     location = Column(String(100))

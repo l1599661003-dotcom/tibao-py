@@ -1,20 +1,18 @@
+import configparser
 import json
 import os
 import sys
-import configparser
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 import cv2
-import requests
 from loguru import logger
-from openpyxl.descriptors import DateTime
 
-from core.localhost_fp_project import session
+from core.database_text_tibao_2 import session
 from playwright.sync_api import sync_playwright
 import traceback
 
-from models.models import Creator, CreatorNoteDetail
-from models.models_tibao import CreatorBusinessOut, FpCreatorFansSummary
+from models.models import Creator, CreatorNoteDetail, BloggerInfo
+from models.models_tibao import FpCreatorFansSummary, FpCreatorNoteRate
 from unitl.common import Common
 
 """
@@ -32,10 +30,42 @@ def get_resource_path(relative_path):
         base_path = os.path.abspath("../../WeekAccountUpdate")
     return os.path.join(base_path, relative_path)
 
+def load_config():
+    """加载配置文件"""
+    config = configparser.ConfigParser()
+
+    # 尝试多个可能的配置文件路径
+    config_paths = [
+        get_resource_path('WeekAccountUpdate/config.ini'),
+        get_resource_path('config.ini'),
+        'WeekAccountUpdate/config.ini',
+        'config.ini'
+    ]
+
+    config_loaded = False
+    for config_path in config_paths:
+        if os.path.exists(config_path):
+            config.read(config_path, encoding='utf-8')
+            config_loaded = True
+            break
+
+    if not config_loaded:
+        logger.error("未找到配置文件")
+        raise FileNotFoundError("配置文件不存在")
+
+    # 解析配置
+    return {
+        'PGY_LOGIN_CONFIG': {
+            'id': config.get('PGY_LOGIN', 'id'),
+            'page_size': config.get('PGY_LOGIN', 'page_size')
+        },
+    }
+
 class PGYSpider:
     def __init__(self):
         # 加载配置
         self.setup_logger()
+        self.config = load_config()
 
         # 设置cookie和数据目录，支持exe打包
         if hasattr(sys, '_MEIPASS'):
@@ -238,23 +268,32 @@ class PGYSpider:
                 time.sleep(300)  # 5分钟 = 300秒
                 return
             # creator_data = session.query(CreatorBusinessOut).filter(CreatorBusinessOut.creator_mcn == 6, CreatorBusinessOut.sign_status == 1).all()
-            creator_data = session.query(CreatorBusinessOut).filter(CreatorBusinessOut.creator_mcn == 6).all()
+            page = int(self.config['PGY_LOGIN_CONFIG']['id'])
+            page_size = int(self.config['PGY_LOGIN_CONFIG']['page_size'])
+
+            creator_data = session.query(BloggerInfo) \
+                .filter(BloggerInfo.status == 0) \
+                .offset((page - 1) * page_size) \
+                .limit(page_size) \
+                .all()
 
             if len(creator_data) > 0:
                 logger.info(f"找到 {len(creator_data)} 个博主数据，开始处理...")
 
                 for item in creator_data:
-                    if not item.platform_user_id:
-                        continue
+                    # if not item.platform_user_id:
+                    #     continue
 
                     try:
                         # 清空之前的数据
                         self.api_data.clear()
 
-                        logger.info(f"正在处理博主: {item.creator_nickname}")
+                        # logger.info(f"正在处理博主: {item.creator_nickname}")
+                        logger.info(f"正在处理博主: {item.nickname}")
 
                         # 访问页面
-                        page_url = f"https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/{item.platform_user_id:}"
+                        # page_url = f"https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/{item.platform_user_id:}"
+                        page_url = item.pgy_link
                         logger.info(f"开始访问页面: {page_url}")
 
                         try:
@@ -279,13 +318,34 @@ class PGYSpider:
                                     continue
 
                                 api_data = response_data['data']
-                                if 'blogger' in api_url:
-                                    self._process_blogger(api_data, item)
-                                elif 'notes_detail' in api_url:
+                                # if 'blogger' in api_url:
+                                #     self._process_blogger(api_data, item)
+                                if 'notes_detail' in api_url:
                                     self._process_notes_detail(api_data, item)
                                 elif 'fans_summary' in api_url:
                                     self._process_fans_summary(api_data, item)
+                                elif 'notes_rate' in api_url:
+                                    self._process_notes_rate(api_data, item, 0)
 
+                            self.api_data.clear()
+                            # 点击按钮操作
+                            dropdown_container = self.page.locator('.d-spinner-nested-loading')
+                            switch_button = dropdown_container.locator('button:has-text("合作笔记")').first
+                            if not switch_button.is_visible(timeout=5000):
+                                logger.warning(f"按钮不可见: {'button:has-text("合作笔记")'}")
+                                return False
+                            switch_button.click()
+                            logger.info(f"成功点击按钮: {'button:has-text("合作笔记")'}")
+                            for api_url, response_data in api_data_copy.items():
+                                if 'data' not in response_data:
+                                    continue
+
+                                api_data = response_data['data']
+
+                                if 'notes_rate' in api_url:
+                                    self._process_notes_rate(api_data, item, 1)
+
+                            self.common.random_sleep(10, 15)
 
                             # 所有 API 数据处理完毕后，点击笔记按钮
                             try:
@@ -312,7 +372,7 @@ class PGYSpider:
                                         logger.info(f"正在处理第 {page_count} 页数据...")
 
                                         # 等待API数据加载
-                                        self.common.random_sleep(10, 15)
+                                        self.common.random_sleep(7, 10)
 
                                         # 处理当前页数据
                                         for api_url, response_data in self.api_data.items():
@@ -336,12 +396,16 @@ class PGYSpider:
                             except Exception as db_error:
                                 logger.error(f"更新数据库时出错: {str(db_error)}")
                                 # 继续处理下一个博主，不退出程序
+                            item.status = 1
+                            session.commit()
 
                         else:
-                            logger.info(f"未捕获到博主 {item.creator_nickname} 的API请求")
+                            # logger.info(f"未捕获到博主 {item.creator_nickname} 的API请求")
+                            logger.info(f"未捕获到博主 {item.nickname} 的API请求")
 
                     except Exception as e:
-                        logger.error(f"处理博主 {item.creator_nickname} 数据时出错: {str(e)}")
+                        # logger.error(f"处理博主 {item.creator_nickname} 数据时出错: {str(e)}")
+                        logger.error(f"处理博主 {item.nickname} 数据时出错: {str(e)}")
                         continue
             else:
                 logger.info("没有找到新签约博主数据")
@@ -413,7 +477,8 @@ class PGYSpider:
                 for item in data['list']:
                     item_data = dict(item)
                     existing = session.query(CreatorNoteDetail).filter(
-                        CreatorNoteDetail.platform_user_id == url.platform_user_id,
+                        # CreatorNoteDetail.platform_user_id == url.platform_user_id,
+                        CreatorNoteDetail.platform_user_id == url.id,
                         CreatorNoteDetail.note_id == item_data.get('noteId')
                     ).first()
 
@@ -432,7 +497,8 @@ class PGYSpider:
                     else:
                         # 创建新记录
                         note_detail = CreatorNoteDetail(
-                            platform_user_id=url.platform_user_id,
+                            # platform_user_id=url.platform_user_id,
+                            platform_user_id=url.id,
                             note_id=item_data.get('noteId'),
                             note_title=item_data.get('title'),
                             brand_name=item_data.get('brandName'),
@@ -468,7 +534,8 @@ class PGYSpider:
             data = api_data.get('data', {}) or {}
             item_data = dict(data)
             existing = session.query(FpCreatorFansSummary).filter(
-                FpCreatorFansSummary.platform_user_id == url.platform_user_id,
+                # FpCreatorFansSummary.platform_user_id == url.platform_user_id,
+                FpCreatorFansSummary.platform_user_id == url.id,
             ).first()
 
             if existing:
@@ -492,7 +559,8 @@ class PGYSpider:
             else:
                 # 创建新记录
                 note_detail = FpCreatorFansSummary(
-                    platform_user_id=url.platform_user_id,
+                    # platform_user_id=url.platform_user_id,
+                    platform_user_id=url.id,
                     fans_increase_num = item_data.get('fansIncreaseNum'),
                     fans_growth_rate = item_data.get('fansGrowthRate'),
                     active_fans_rate = item_data.get('activeFansRate'),
@@ -508,6 +576,58 @@ class PGYSpider:
                     fans_num = item_data.get('fansNum'),
                     engage_fans_l30 = item_data.get('engageFansL30'),
                     active_fans_l28 = item_data.get('activeFansL28'),
+                    create_time=int(datetime.now().timestamp()),
+                    update_time=int(datetime.now().timestamp())
+                )
+                session.add(note_detail)
+                session.commit()
+
+    def _process_notes_rate(self, api_data, url, business):
+        if api_data['code'] == 0:
+            data = api_data.get('data', {}) or {}
+            item_data = dict(data)
+            existing = session.query(FpCreatorNoteRate).filter(
+                FpCreatorNoteRate.platform_user_id == url.id,
+                FpCreatorNoteRate.business == business,
+            ).first()
+            if existing:
+                # 如果已存在，更新数据
+                existing.imp_median = item_data.get('impMedian')
+                existing.read_median = item_data.get('readMedian')
+                existing.mengagement_num = item_data.get('mengagementNum')
+                existing.like_median = item_data.get('likeMedian')
+                existing.collect_median = item_data.get('collectMedian')
+                existing.comment_median = item_data.get('commentMedian')
+                existing.share_median = item_data.get('shareMedian')
+                existing.mfollow_cnt = item_data.get('mfollowCnt')
+                existing.interaction_rate = item_data.get('interactionRate')
+                existing.video_full_view_rate = item_data.get('videoFullViewRate')
+                existing.picture3s_view_rate = item_data.get('picture3sViewRate')
+                existing.thousand_like_percent = item_data.get('thousandLikePercent')
+                existing.hundred_like_percent = item_data.get('hundredLikePercent')
+                existing.business = business
+                existing.update_time = int(datetime.now().timestamp())
+            else:
+                # 创建新记录
+                note_detail = FpCreatorNoteRate(
+                    platform_user_id=url.id,
+                    business=business,
+
+                    # ====== 新增补全：你上面 update 中用到的字段 ======
+                    imp_median=item_data.get('impMedian'),
+                    read_median=item_data.get('readMedian'),
+                    mengagement_num=item_data.get('mengagementNum'),
+                    like_median=item_data.get('likeMedian'),
+                    collect_median=item_data.get('collectMedian'),
+                    comment_median=item_data.get('commentMedian'),
+                    share_median=item_data.get('shareMedian'),
+                    mfollow_cnt=item_data.get('mfollowCnt'),
+                    interaction_rate=item_data.get('interactionRate'),
+                    video_full_view_rate=item_data.get('videoFullViewRate'),
+                    picture3s_view_rate=item_data.get('picture3sViewRate'),
+                    thousand_like_percent=item_data.get('thousandLikePercent'),
+                    hundred_like_percent=item_data.get('hundredLikePercent'),
+
                     create_time=int(datetime.now().timestamp()),
                     update_time=int(datetime.now().timestamp())
                 )
@@ -609,7 +729,8 @@ class PGYSpider:
             target_apis = [
                 'solar/cooperator/user/blogger',
                 'notes_detail',
-                'fans_summary'
+                'fans_summary',
+                'notes_rate'
             ]
 
             # 检查是否是目标API

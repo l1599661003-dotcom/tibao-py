@@ -170,13 +170,13 @@ def main():
     try:
         # 获取MCN列表
         mcn_list = get_mcn_list()
+        start_time = datetime.now()
 
         if not mcn_list:
             logger.warning("没有MCN数据")
             return
 
-        # 收集所有博主数据
-        all_creators = []
+        # 统计数据
         total_success = 0
         total_failed = 0
 
@@ -191,26 +191,22 @@ def main():
                 authors = fetch_mcn_authors(mcn_id)
 
                 if authors and len(authors) > 0:
-                    all_creators.extend(authors)
                     total_success += len(authors)
                     logger.info(f"MCN {mcn_id} 成功抓取 {len(authors)} 个博主")
-                else:
-                    logger.warning(f"MCN {mcn_id} 没有返回数据")
-                    total_failed += 1
 
-                # 组装数据并保存
-                data_to_save = {
-                    "creator_mcn": str(creator_mcn),
-                    "platform_id": PLATFORM_ID,
-                    "raw_data": all_creators
-                }
-
-                # 调用保存接口
-                if len(all_creators) > 0:
+                    # 组装数据并保存 - 只保存当前MCN的数据
+                    data_to_save = {
+                        "creator_mcn": str(creator_mcn),
+                        "platform_id": PLATFORM_ID,
+                        "raw_data": authors  # 只使用当前MCN的数据，不累积
+                    }
+                    print(data_to_save)
+                    # 调用保存接口
                     logger.info(f"开始推送数据到后端...")
                     save_creator_data(data_to_save)
                 else:
-                    logger.warning(f"没有数据需要保存")
+                    logger.warning(f"MCN {mcn_id} 没有返回数据")
+                    total_failed += 1
 
                 # 延迟，避免请求过快
                 time.sleep(6)
@@ -223,7 +219,6 @@ def main():
         logger.info(f"\n数据收集完成:")
         logger.info(f"- 成功抓取 {total_success} 个博主")
         logger.info(f"- 失败 {total_failed} 个MCN")
-        logger.info(f"- 总计 {len(all_creators)} 条博主数据")
 
         # 输出统计信息
         end_time = datetime.now()

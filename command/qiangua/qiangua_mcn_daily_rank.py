@@ -2,7 +2,7 @@ import time
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 import random
 from decimal import Decimal
 import configparser
@@ -34,12 +34,18 @@ def show_mcn_selection_dialog():
 
     def on_mcn_click(mcn_name, btn):
         """处理MCN名字点击事件"""
-        if mcn_name not in selected_mcns:
+        if mcn_name in selected_mcns:
+            # 如果已选择，则取消选择
+            selected_mcns.remove(mcn_name)
+            # 恢复按钮样式
+            btn.config(bg='#E3F2FD', fg='black', relief='raised')
+        else:
+            # 如果未选择，则添加到选择列表
             selected_mcns.append(mcn_name)
             # 改变按钮样式表示已选择
             btn.config(bg='#4CAF50', fg='white', relief='sunken')
-            # 更新已选择列表显示
-            update_selected_list()
+        # 更新已选择列表显示
+        update_selected_list()
 
     def update_selected_list():
         """更新已选择列表的显示"""
@@ -68,11 +74,18 @@ def show_mcn_selection_dialog():
             btn.config(bg='#E3F2FD', fg='black', relief='raised')
         update_selected_list()
 
+    def on_close():
+        """关闭窗口"""
+        root.quit()
+        root.destroy()
+        sys.exit(0)
+
     # 创建主窗口
     root = tk.Tk()
     root.title("千瓜MCN数据抓取 - 选择机构")
     root.geometry("900x700")
     root.configure(bg='#f5f5f5')
+    root.protocol("WM_DELETE_WINDOW", on_close)
 
     # 创建顶部标题区域
     title_frame = tk.Frame(root, bg='#2196F3', height=80)
@@ -94,7 +107,7 @@ def show_mcn_selection_dialog():
 
     instruction_label = tk.Label(
         instruction_frame,
-        text="请按顺序点击要查询的MCN机构名称（点击顺序即为查询顺序）",
+        text="请按顺序点击要查询的MCN机构名称（点击顺序即为查询顺序，再次点击可取消）",
         font=("Microsoft YaHei UI", 11),
         bg='#f5f5f5',
         fg='#333'
@@ -229,11 +242,25 @@ def show_rank_type_dialog():
         root.quit()
         root.destroy()
 
+    def on_back():
+        """返回上一步"""
+        selected_rank_type.clear()
+        selected_rank_type.append('__BACK__')
+        root.quit()
+        root.destroy()
+
+    def on_close():
+        """关闭窗口"""
+        root.quit()
+        root.destroy()
+        sys.exit(0)
+
     # 创建主窗口
     root = tk.Tk()
     root.title("千瓜MCN数据抓取 - 选择榜单类型")
-    root.geometry("550x350")
+    root.geometry("700x400")
     root.configure(bg='#f5f5f5')
+    root.protocol("WM_DELETE_WINDOW", on_close)
 
     # 创建顶部标题区域
     title_frame = tk.Frame(root, bg='#2196F3', height=80)
@@ -277,7 +304,7 @@ def show_rank_type_dialog():
         btn = tk.Button(
             button_frame,
             text=text,
-            width=15,
+            width=18,
             height=3,
             font=("Microsoft YaHei UI", 13, "bold"),
             bg=color,
@@ -300,6 +327,23 @@ def show_rank_type_dialog():
         btn.bind("<Enter>", on_enter)
         btn.bind("<Leave>", on_leave)
 
+    # 创建返回按钮
+    back_btn = tk.Button(
+        root,
+        text="← 返回上一步",
+        width=15,
+        height=2,
+        font=("Microsoft YaHei UI", 10),
+        bg='#757575',
+        fg='white',
+        relief='raised',
+        bd=0,
+        cursor='hand2',
+        activebackground='#616161',
+        command=on_back
+    )
+    back_btn.pack(pady=20)
+
     # 居中显示窗口
     root.update_idletasks()
     width = root.winfo_width()
@@ -311,7 +355,7 @@ def show_rank_type_dialog():
     # 运行主循环
     root.mainloop()
 
-    return selected_rank_type[0] if selected_rank_type else "日榜"
+    return selected_rank_type[0] if selected_rank_type else None
 
 
 def _darken_color(hex_color):
@@ -322,6 +366,516 @@ def _darken_color(hex_color):
     g = int(g * 0.8)
     b = int(b * 0.8)
     return f'#{r:02x}{g:02x}{b:02x}'
+
+
+def show_date_selection_dialog(rank_type):
+    """显示是否选择历史数据的对话框"""
+    result = {'use_default': True, 'selected_date': None, 'back': False}
+
+    def on_yes_click():
+        """使用默认日期（昨日/上周/上月）"""
+        result['use_default'] = True
+        result['selected_date'] = None
+        result['back'] = False
+        root.quit()
+        root.destroy()
+
+    def on_no_click():
+        """需要选择历史日期"""
+        result['use_default'] = False
+        result['back'] = False
+        root.quit()
+        root.destroy()
+        # 显示日期选择窗口
+        date_result = show_custom_date_dialog(rank_type)
+        if date_result == '__BACK__':
+            result['back'] = True
+        else:
+            result['selected_date'] = date_result
+
+    def on_back():
+        """返回上一步"""
+        result['back'] = True
+        root.quit()
+        root.destroy()
+
+    def on_close():
+        """关闭窗口"""
+        root.quit()
+        root.destroy()
+        sys.exit(0)
+
+    # 创建主窗口
+    root = tk.Tk()
+    root.title("千瓜MCN数据抓取 - 日期选择")
+    root.geometry("600x400")
+    root.configure(bg='#f5f5f5')
+    root.protocol("WM_DELETE_WINDOW", on_close)
+
+    # 创建顶部标题区域
+    title_frame = tk.Frame(root, bg='#2196F3', height=80)
+    title_frame.pack(fill='x')
+    title_frame.pack_propagate(False)
+
+    title_label = tk.Label(
+        title_frame,
+        text="📅 日期选择",
+        font=("Microsoft YaHei UI", 18, "bold"),
+        bg='#2196F3',
+        fg='white'
+    )
+    title_label.pack(pady=20)
+
+    # 根据榜单类型显示不同的提示文本
+    date_text_map = {
+        "日榜": "昨日",
+        "周榜": "上周",
+        "月榜": "上月"
+    }
+    date_text = date_text_map.get(rank_type, "默认")
+
+    # 创建说明标签
+    instruction_frame = tk.Frame(root, bg='#f5f5f5')
+    instruction_frame.pack(pady=30)
+
+    instruction_label = tk.Label(
+        instruction_frame,
+        text=f"是否抓取{date_text}的{rank_type}数据?",
+        font=("Microsoft YaHei UI", 14),
+        bg='#f5f5f5',
+        fg='#333'
+    )
+    instruction_label.pack()
+
+    hint_label = tk.Label(
+        instruction_frame,
+        text=f"选择'是'将使用默认日期({date_text})\n选择'否'可以自定义选择历史日期",
+        font=("Microsoft YaHei UI", 11),
+        bg='#f5f5f5',
+        fg='#666'
+    )
+    hint_label.pack(pady=15)
+
+    # 创建按钮容器
+    button_frame = tk.Frame(root, bg='#f5f5f5')
+    button_frame.pack(pady=20)
+
+    # 创建"是"按钮
+    yes_btn = tk.Button(
+        button_frame,
+        text="✓ 是",
+        width=15,
+        height=3,
+        font=("Microsoft YaHei UI", 13, "bold"),
+        bg='#4CAF50',
+        fg='white',
+        relief='raised',
+        bd=0,
+        cursor='hand2',
+        activebackground='#388E3C',
+        command=on_yes_click
+    )
+    yes_btn.pack(side='left', padx=25)
+
+    # 创建"否"按钮
+    no_btn = tk.Button(
+        button_frame,
+        text="✗ 否",
+        width=15,
+        height=3,
+        font=("Microsoft YaHei UI", 13, "bold"),
+        bg='#FF9800',
+        fg='white',
+        relief='raised',
+        bd=0,
+        cursor='hand2',
+        activebackground='#F57C00',
+        command=on_no_click
+    )
+    no_btn.pack(side='left', padx=25)
+
+    # 创建返回按钮
+    back_btn = tk.Button(
+        root,
+        text="← 返回上一步",
+        width=15,
+        height=2,
+        font=("Microsoft YaHei UI", 10),
+        bg='#757575',
+        fg='white',
+        relief='raised',
+        bd=0,
+        cursor='hand2',
+        activebackground='#616161',
+        command=on_back
+    )
+    back_btn.pack(pady=20)
+
+    # 居中显示窗口
+    root.update_idletasks()
+    width = root.winfo_width()
+    height = root.winfo_height()
+    x = (root.winfo_screenwidth() // 2) - (width // 2)
+    y = (root.winfo_screenheight() // 2) - (height // 2)
+    root.geometry(f'{width}x{height}+{x}+{y}')
+
+    # 运行主循环
+    root.mainloop()
+
+    return result
+
+
+def show_custom_date_dialog(rank_type):
+    """显示自定义日期选择对话框"""
+    selected_date = []
+
+    def on_back():
+        """返回上一步"""
+        selected_date.clear()
+        selected_date.append('__BACK__')
+        root.quit()
+        root.destroy()
+
+    def on_close():
+        """关闭窗口"""
+        root.quit()
+        root.destroy()
+        sys.exit(0)
+
+    # 创建主窗口
+    root = tk.Tk()
+    root.title(f"千瓜MCN数据抓取 - 选择{rank_type}日期")
+
+    # 根据榜单类型设置不同的窗口大小
+    if rank_type == "日榜":
+        root.geometry("750x650")
+    elif rank_type == "周榜":
+        root.geometry("700x550")
+    else:  # 月榜
+        root.geometry("750x650")
+
+    root.configure(bg='#f5f5f5')
+    root.protocol("WM_DELETE_WINDOW", on_close)
+
+    # 创建顶部标题区域
+    title_frame = tk.Frame(root, bg='#2196F3', height=80)
+    title_frame.pack(fill='x')
+    title_frame.pack_propagate(False)
+
+    title_label = tk.Label(
+        title_frame,
+        text=f"📅 选择{rank_type}日期",
+        font=("Microsoft YaHei UI", 18, "bold"),
+        bg='#2196F3',
+        fg='white'
+    )
+    title_label.pack(pady=20)
+
+    # 创建说明标签
+    instruction_frame = tk.Frame(root, bg='#f5f5f5')
+    instruction_frame.pack(pady=15)
+
+    if rank_type == "日榜":
+        instruction_text = "请选择要查询的日期（最近10天内）:"
+    elif rank_type == "周榜":
+        instruction_text = "请选择要查询的周（点击周内任意日期）:"
+    else:  # 月榜
+        instruction_text = "请选择要查询的月份:"
+
+    instruction_label = tk.Label(
+        instruction_frame,
+        text=instruction_text,
+        font=("Microsoft YaHei UI", 12),
+        bg='#f5f5f5',
+        fg='#333'
+    )
+    instruction_label.pack()
+
+    # 创建日期选择区域（带滚动条）
+    canvas_frame = tk.Frame(root, bg='#f5f5f5')
+    canvas_frame.pack(pady=15, padx=30, fill='both', expand=True)
+
+    canvas = tk.Canvas(canvas_frame, bg='white', highlightthickness=0)
+    scrollbar = tk.Scrollbar(canvas_frame, orient='vertical', command=canvas.yview)
+
+    date_frame = tk.Frame(canvas, bg='white')
+
+    canvas.create_window((0, 0), window=date_frame, anchor='nw')
+    canvas.configure(yscrollcommand=scrollbar.set)
+
+    canvas.pack(side='left', fill='both', expand=True)
+    scrollbar.pack(side='right', fill='y')
+
+    if rank_type == "日榜":
+        create_daily_selector(date_frame, selected_date, root)
+    elif rank_type == "周榜":
+        create_weekly_selector(date_frame, selected_date, root)
+    else:  # 月榜
+        create_monthly_selector(date_frame, selected_date, root)
+
+    # 更新canvas滚动区域
+    date_frame.update_idletasks()
+    canvas.config(scrollregion=canvas.bbox('all'))
+
+    # 创建返回按钮
+    back_btn = tk.Button(
+        root,
+        text="← 返回上一步",
+        width=15,
+        height=2,
+        font=("Microsoft YaHei UI", 10),
+        bg='#757575',
+        fg='white',
+        relief='raised',
+        bd=0,
+        cursor='hand2',
+        activebackground='#616161',
+        command=on_back
+    )
+    back_btn.pack(pady=15)
+
+    # 居中显示窗口
+    root.update_idletasks()
+    width = root.winfo_width()
+    height = root.winfo_height()
+    x = (root.winfo_screenwidth() // 2) - (width // 2)
+    y = (root.winfo_screenheight() // 2) - (height // 2)
+    root.geometry(f'{width}x{height}+{x}+{y}')
+
+    # 运行主循环
+    root.mainloop()
+
+    return selected_date[0] if selected_date else None
+
+
+def create_daily_selector(parent, selected_date, root):
+    """创建日榜日期选择器"""
+    today = datetime.now()
+
+    # 创建日期按钮网格
+    button_frame = tk.Frame(parent, bg='white')
+    button_frame.pack(pady=30, padx=30)
+
+    # 标题
+    title_label = tk.Label(
+        button_frame,
+        text="选择日期（今天往前10天）",
+        font=("Microsoft YaHei UI", 12, "bold"),
+        bg='white',
+        fg='#333'
+    )
+    title_label.grid(row=0, column=0, columnspan=3, pady=15)
+
+    def on_date_click(date_obj):
+        selected_date.clear()
+        selected_date.append(date_obj)
+        root.quit()
+        root.destroy()
+
+    # 生成最近10天的日期按钮（每行3个）
+    row = 1
+    col = 0
+    for i in range(10, 0, -1):
+        date_obj = today - timedelta(days=i)
+        date_str = date_obj.strftime("%m月%d日")
+        weekday = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][date_obj.weekday()]
+
+        btn = tk.Button(
+            button_frame,
+            text=f"{date_str}\n{weekday}",
+            width=18,
+            height=3,
+            font=("Microsoft YaHei UI", 11),
+            bg='#E3F2FD',
+            fg='black',
+            relief='raised',
+            bd=2,
+            cursor='hand2',
+            activebackground='#90CAF9',
+            command=lambda d=date_obj: on_date_click(d)
+        )
+        btn.grid(row=row, column=col, padx=10, pady=10)
+
+        col += 1
+        if col >= 3:  # 每行3个按钮
+            col = 0
+            row += 1
+
+
+def create_weekly_selector(parent, selected_date, root):
+    """创建周榜选择器"""
+    today = datetime.now()
+
+    # 创建周选择按钮
+    button_frame = tk.Frame(parent, bg='white')
+    button_frame.pack(pady=30, padx=30)
+
+    # 标题
+    title_label = tk.Label(
+        button_frame,
+        text="选择周（当月各周）",
+        font=("Microsoft YaHei UI", 12, "bold"),
+        bg='white',
+        fg='#333'
+    )
+    title_label.pack(pady=15)
+
+    def on_week_click(week_start, week_end):
+        selected_date.clear()
+        selected_date.append({'start': week_start, 'end': week_end})
+        root.quit()
+        root.destroy()
+
+    # 计算当月的周
+    current_year = today.year
+    current_month = today.month
+
+    # 获取当月第一天
+    first_day_of_month = datetime(current_year, current_month, 1)
+
+    # 获取当月最后一天
+    if current_month == 12:
+        last_day_of_month = datetime(current_year + 1, 1, 1) - timedelta(days=1)
+    else:
+        last_day_of_month = datetime(current_year, current_month + 1, 1) - timedelta(days=1)
+
+    # 计算各周
+    weeks = []
+    current_week_start = first_day_of_month
+
+    # 调整到周一开始
+    days_to_monday = current_week_start.weekday()
+    if days_to_monday > 0:
+        # 如果第一天不是周一，往前调整到周一
+        current_week_start = current_week_start - timedelta(days=days_to_monday)
+
+    week_num = 1
+    while current_week_start <= last_day_of_month:
+        week_end = current_week_start + timedelta(days=6)
+
+        # 只显示还没到的周（不包括当前周和未来的周）
+        # 判断这一周是否完全过去了
+        if week_end < today:
+            weeks.append({
+                'num': week_num,
+                'start': current_week_start,
+                'end': week_end
+            })
+
+        current_week_start = week_end + timedelta(days=1)
+        week_num += 1
+
+    # 如果当月没有完整过去的周，显示上个月的周
+    if not weeks:
+        # 获取上月第一天
+        if current_month == 1:
+            prev_month_first = datetime(current_year - 1, 12, 1)
+        else:
+            prev_month_first = datetime(current_year, current_month - 1, 1)
+
+        # 获取上月最后一天
+        prev_month_last = first_day_of_month - timedelta(days=1)
+
+        # 计算上月的周
+        current_week_start = prev_month_first
+        days_to_monday = current_week_start.weekday()
+        if days_to_monday > 0:
+            current_week_start = current_week_start - timedelta(days=days_to_monday)
+
+        week_num = 1
+        while current_week_start <= prev_month_last:
+            week_end = current_week_start + timedelta(days=6)
+            if week_end < today:
+                weeks.append({
+                    'num': week_num,
+                    'start': current_week_start,
+                    'end': week_end
+                })
+            current_week_start = week_end + timedelta(days=1)
+            week_num += 1
+
+    # 显示周按钮
+    for week in weeks:
+        week_text = f"第{week['num']}周\n{week['start'].strftime('%m月%d日')} - {week['end'].strftime('%m月%d日')}"
+
+        btn = tk.Button(
+            button_frame,
+            text=week_text,
+            width=40,
+            height=3,
+            font=("Microsoft YaHei UI", 11),
+            bg='#E3F2FD',
+            fg='black',
+            relief='raised',
+            bd=2,
+            cursor='hand2',
+            activebackground='#90CAF9',
+            command=lambda ws=week['start'], we=week['end']: on_week_click(ws, we)
+        )
+        btn.pack(pady=8)
+
+
+def create_monthly_selector(parent, selected_date, root):
+    """创建月榜选择器"""
+    today = datetime.now()
+    current_year = today.year
+    current_month = today.month
+
+    # 创建月份选择按钮
+    button_frame = tk.Frame(parent, bg='white')
+    button_frame.pack(pady=30, padx=30)
+
+    # 标题
+    title_label = tk.Label(
+        button_frame,
+        text=f"{current_year}年 - 选择月份",
+        font=("Microsoft YaHei UI", 12, "bold"),
+        bg='white',
+        fg='#333'
+    )
+    title_label.grid(row=0, column=0, columnspan=3, pady=15)
+
+    def on_month_click(year, month):
+        selected_date.clear()
+        selected_date.append({'year': year, 'month': month})
+        root.quit()
+        root.destroy()
+
+    # 生成月份按钮（当前月之前的所有月份）
+    row = 1
+    col = 0
+
+    months = ['一月', '二月', '三月', '四月', '五月', '六月',
+              '七月', '八月', '九月', '十月', '十一月', '十二月']
+
+    for month in range(1, 13):
+        # 当前月及之后的月份禁用
+        is_disabled = month >= current_month
+
+        btn = tk.Button(
+            button_frame,
+            text=months[month-1],
+            width=18,
+            height=3,
+            font=("Microsoft YaHei UI", 11),
+            bg='#BDBDBD' if is_disabled else '#E3F2FD',
+            fg='#757575' if is_disabled else 'black',
+            relief='raised',
+            bd=2,
+            cursor='hand2' if not is_disabled else 'arrow',
+            activebackground='#90CAF9' if not is_disabled else '#BDBDBD'
+        )
+
+        # 只为可用的月份绑定点击事件
+        if not is_disabled:
+            btn.config(command=lambda y=current_year, m=month: on_month_click(y, m))
+
+        btn.grid(row=row, column=col, padx=12, pady=12)
+
+        col += 1
+        if col >= 3:  # 改为每行3个
+            col = 0
+            row += 1
 
 
 def get_base_dir():
@@ -335,7 +889,7 @@ def get_base_dir():
 
 
 class QianguaMcnDailyRankSpider:
-    def __init__(self, rank_type="日榜"):
+    def __init__(self, rank_type="日榜", use_default_date=True, custom_date=None):
         self.base_dir = get_base_dir()
         self.setup_logger()
         self.base_url = "https://app.qian-gua.com"
@@ -347,8 +901,10 @@ class QianguaMcnDailyRankSpider:
         self.export_folder = os.path.join(self.base_dir, 'exports')
         os.makedirs(self.export_folder, exist_ok=True)
 
-        # 保存用户选择的榜单类型
+        # 保存用户选择的榜单类型和日期选项
         self.rank_type = rank_type
+        self.use_default_date = use_default_date
+        self.custom_date = custom_date
 
         # 加载配置
         self.load_config()
@@ -677,6 +1233,12 @@ class QianguaMcnDailyRankSpider:
                 logger.info(f"成功点击{self.rank_type}按钮")
                 self.human_delay(1.5, 2.5)
                 self.page.wait_for_load_state('networkidle', timeout=10000)
+
+                # 如果不使用默认日期，则进行日期选择
+                if not self.use_default_date:
+                    logger.info("需要选择历史日期，开始日期选择流程...")
+                    self.select_historical_date()
+
                 return True
             else:
                 logger.error(f"未找到{self.rank_type}按钮")
@@ -684,6 +1246,222 @@ class QianguaMcnDailyRankSpider:
         except Exception as e:
             logger.error(f"点击{self.rank_type}按钮时出错: {str(e)}")
             return False
+
+    def select_historical_date(self):
+        """选择历史日期"""
+        try:
+            logger.info("点击日期选择框...")
+
+            # 点击日期选择框
+            date_picker = self.page.locator('input#datePicker.el-input__inner')
+            date_picker.click()
+            self.human_delay(1.0, 2.0)
+
+            # 根据榜单类型和用户选择的日期进行操作
+            if self.custom_date is None:
+                logger.warning("没有自定义日期，将使用默认日期")
+                return
+
+            if self.rank_type == "日榜":
+                self.select_daily_date_on_page()
+            elif self.rank_type == "周榜":
+                self.select_weekly_date_on_page()
+            elif self.rank_type == "月榜":
+                self.select_monthly_date_on_page()
+
+            logger.info("日期选择完成")
+            self.human_delay(1.5, 2.5)
+
+        except Exception as e:
+            logger.error(f"选择历史日期时出错: {str(e)}")
+
+    def select_daily_date_on_page(self):
+        """在网页上选择日榜的具体日期"""
+        try:
+            if not isinstance(self.custom_date, datetime):
+                logger.error(f"日榜日期格式错误: {self.custom_date}")
+                return
+
+            target_day = self.custom_date.day
+            logger.info(f"选择日榜日期: {self.custom_date.strftime('%Y-%m-%d')}, 目标日期: {target_day}号")
+
+            # 等待日期表格出现
+            self.page.wait_for_selector('table.el-date-table', timeout=5000)
+            self.human_delay(0.5, 1.0)
+
+            # 点击目标日期
+            clicked = self.page.evaluate(f'''
+                () => {{
+                    const table = document.querySelector('table.el-date-table');
+                    if (!table) return false;
+
+                    // 找到所有可用日期
+                    const availableCells = Array.from(table.querySelectorAll('td.available'));
+
+                    for (const cell of availableCells) {{
+                        const dateText = cell.querySelector('span').textContent.trim();
+                        if (dateText === '{target_day}') {{
+                            console.log('找到并点击日期:', dateText);
+                            cell.click();
+                            return true;
+                        }}
+                    }}
+
+                    console.log('未找到目标日期');
+                    return false;
+                }}
+            ''')
+
+            if clicked:
+                logger.info(f"成功选择日榜日期: {target_day}号")
+                self.human_delay(1.0, 1.5)
+            else:
+                logger.warning(f"未找到目标日期 {target_day}号")
+
+        except Exception as e:
+            logger.error(f"选择日榜日期时出错: {str(e)}")
+
+    def select_weekly_date_on_page(self):
+        """在网页上选择周榜的具体周"""
+        try:
+            if not isinstance(self.custom_date, dict) or 'start' not in self.custom_date:
+                logger.error(f"周榜日期格式错误: {self.custom_date}")
+                return
+
+            week_start = self.custom_date['start']
+            week_end = self.custom_date['end']
+
+            # 判断是第几周(通过start日期判断)
+            # 如果start是本月第一周,点击最后一天(周日)
+            # 如果start是本月最后一周,点击第一天(周一)
+            # 其他情况点击中间的日期
+
+            today = datetime.now()
+            current_year = today.year
+            current_month = today.month
+
+            # 获取当月第一天
+            first_day_of_month = datetime(current_year, current_month, 1)
+
+            # 获取当月最后一天
+            if current_month == 12:
+                last_day_of_month = datetime(current_year + 1, 1, 1) - timedelta(days=1)
+            else:
+                last_day_of_month = datetime(current_year, current_month + 1, 1) - timedelta(days=1)
+
+            # 判断是否是第一周(周开始日期在月初附近)
+            is_first_week = week_start <= first_day_of_month
+
+            # 判断是否是最后一周(周结束日期在月末附近或包含月末)
+            is_last_week = week_end >= last_day_of_month or (last_day_of_month - week_end).days <= 7
+
+            # 根据是第几周选择不同的点击日期
+            if is_first_week:
+                # 第一周点击最后一天(周日)
+                target_date = week_end
+                logger.info(f"检测到第一周,点击最后一天: {target_date.strftime('%m月%d日')}")
+            elif is_last_week:
+                # 最后一周点击第一天(周一)
+                target_date = week_start
+                logger.info(f"检测到最后一周,点击第一天: {target_date.strftime('%m月%d日')}")
+            else:
+                # 中间的周点击开始日期
+                target_date = week_start
+                logger.info(f"检测到中间周,点击第一天: {target_date.strftime('%m月%d日')}")
+
+            target_day = target_date.day
+
+            logger.info(f"选择周榜: {week_start.strftime('%Y-%m-%d')} ~ {week_end.strftime('%Y-%m-%d')}")
+            logger.info(f"目标点击日期: {target_day}号")
+
+            # 等待周榜日期表格出现
+            self.page.wait_for_selector('table.el-date-table.is-week-mode', timeout=5000)
+            self.human_delay(0.5, 1.0)
+
+            # 点击目标周的某一天
+            clicked = self.page.evaluate(f'''
+                () => {{
+                    const table = document.querySelector('table.el-date-table.is-week-mode');
+                    if (!table) return false;
+
+                    // 找到所有可用日期
+                    const availableCells = Array.from(table.querySelectorAll('td.available'));
+
+                    for (const cell of availableCells) {{
+                        const dateText = cell.querySelector('span').textContent.trim();
+                        if (dateText === '{target_day}') {{
+                            console.log('找到并点击周内日期:', dateText);
+                            cell.click();
+                            return true;
+                        }}
+                    }}
+
+                    console.log('未找到目标周');
+                    return false;
+                }}
+            ''')
+
+            if clicked:
+                logger.info(f"成功选择周榜")
+                self.human_delay(1.0, 1.5)
+            else:
+                logger.warning(f"未找到目标周")
+
+        except Exception as e:
+            logger.error(f"选择周榜时出错: {str(e)}")
+
+    def select_monthly_date_on_page(self):
+        """在网页上选择月榜的具体月份"""
+        try:
+            if not isinstance(self.custom_date, dict) or 'month' not in self.custom_date:
+                logger.error(f"月榜日期格式错误: {self.custom_date}")
+                return
+
+            target_month = self.custom_date['month']
+            months = ['一月', '二月', '三月', '四月', '五月', '六月',
+                     '七月', '八月', '九月', '十月', '十一月', '十二月']
+            month_text = months[target_month - 1]
+
+            logger.info(f"选择月榜: {target_month}月 ({month_text})")
+
+            # 等待月份表格出现
+            self.page.wait_for_selector('table.el-month-table', timeout=5000)
+            self.human_delay(0.5, 1.0)
+
+            # 点击目标月份
+            clicked = self.page.evaluate(f'''
+                () => {{
+                    const table = document.querySelector('table.el-month-table');
+                    if (!table) return false;
+
+                    // 找到所有单元格
+                    const cells = Array.from(table.querySelectorAll('td'));
+
+                    for (const cell of cells) {{
+                        const monthText = cell.querySelector('.cell')?.textContent.trim();
+                        if (monthText === '{month_text}') {{
+                            // 检查是否禁用
+                            if (!cell.classList.contains('disabled')) {{
+                                console.log('找到并点击月份:', monthText);
+                                cell.click();
+                                return true;
+                            }}
+                        }}
+                    }}
+
+                    console.log('未找到目标月份或月份已禁用');
+                    return false;
+                }}
+            ''')
+
+            if clicked:
+                logger.info(f"成功选择月榜: {month_text}")
+                self.human_delay(1.0, 1.5)
+            else:
+                logger.warning(f"未找到或无法选择月份: {month_text}")
+
+        except Exception as e:
+            logger.error(f"选择月榜时出错: {str(e)}")
 
     def search_keyword(self, keyword):
         """搜索关键词"""
@@ -946,23 +1724,62 @@ class QianguaMcnDailyRankSpider:
 
 
 if __name__ == '__main__':
-    # 显示MCN选择对话框
-    logger.info("显示MCN选择对话框...")
-    selected_mcns = show_mcn_selection_dialog()
+    while True:
+        # 显示MCN选择对话框
+        logger.info("显示MCN选择对话框...")
+        selected_mcns = show_mcn_selection_dialog()
 
-    if not selected_mcns:
-        logger.warning("未选择任何MCN机构，程序退出")
-        sys.exit(0)
+        if not selected_mcns:
+            logger.warning("未选择任何MCN机构，程序退出")
+            sys.exit(0)
 
-    logger.info(f"用户选择的MCN顺序: {selected_mcns}")
+        logger.info(f"用户选择的MCN顺序: {selected_mcns}")
 
-    # 显示榜单类型选择对话框
-    logger.info("显示榜单类型选择对话框...")
-    rank_type = show_rank_type_dialog()
-    logger.info(f"用户选择的榜单类型: {rank_type}")
+        # 显示榜单类型选择对话框
+        while True:
+            logger.info("显示榜单类型选择对话框...")
+            rank_type = show_rank_type_dialog()
 
-    # 创建爬虫实例（传入用户选择的榜单类型）
-    spider = QianguaMcnDailyRankSpider(rank_type=rank_type)
+            if rank_type == '__BACK__':
+                logger.info("用户选择返回，返回MCN选择")
+                break
+            elif rank_type is None:
+                logger.warning("未选择榜单类型，程序退出")
+                sys.exit(0)
 
-    # 使用用户选择的MCN列表作为关键词
-    spider.run(keywords=selected_mcns)
+            logger.info(f"用户选择的榜单类型: {rank_type}")
+
+            # 显示日期选择对话框
+            while True:
+                logger.info("显示日期选择对话框...")
+                date_result = show_date_selection_dialog(rank_type)
+
+                if date_result.get('back'):
+                    logger.info("用户选择返回，返回榜单类型选择")
+                    break
+
+                use_default_date = date_result['use_default']
+                custom_date = date_result['selected_date']
+
+                logger.info(f"是否使用默认日期: {use_default_date}")
+                if custom_date:
+                    if isinstance(custom_date, datetime):
+                        logger.info(f"用户选择的日期: {custom_date.strftime('%Y-%m-%d')}")
+                    elif isinstance(custom_date, dict):
+                        if 'start' in custom_date:
+                            logger.info(f"用户选择的周: {custom_date['start'].strftime('%Y-%m-%d')} ~ {custom_date['end'].strftime('%Y-%m-%d')}")
+                        elif 'month' in custom_date:
+                            logger.info(f"用户选择的月: {custom_date['year']}年{custom_date['month']}月")
+
+                # 创建爬虫实例（传入用户选择的榜单类型、日期选项和自定义日期）
+                spider = QianguaMcnDailyRankSpider(
+                    rank_type=rank_type,
+                    use_default_date=use_default_date,
+                    custom_date=custom_date
+                )
+
+                # 使用用户选择的MCN列表作为关键词
+                spider.run(keywords=selected_mcns)
+
+                # 程序执行完成，退出所有循环
+                sys.exit(0)

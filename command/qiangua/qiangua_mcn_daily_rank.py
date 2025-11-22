@@ -5,7 +5,6 @@ import sys
 from datetime import datetime, timedelta
 import random
 from decimal import Decimal
-import configparser
 import tkinter as tk
 from tkinter import ttk
 
@@ -897,7 +896,6 @@ class QianguaMcnDailyRankSpider:
         self.is_logged_in = False
         self.api_data = {}
         self.cookie_file = os.path.join(self.base_dir, 'cookies.json')
-        self.config_file = os.path.join(self.base_dir, 'daily_rank_config.ini')
         self.export_folder = os.path.join(self.base_dir, 'exports')
         os.makedirs(self.export_folder, exist_ok=True)
 
@@ -906,10 +904,52 @@ class QianguaMcnDailyRankSpider:
         self.use_default_date = use_default_date
         self.custom_date = custom_date
 
-        # 加载配置
-        self.load_config()
+        # 定义机构合并规则
+        self.mcn_merge_rules = {
+            '西西里/橙拉': {
+                'search_keywords': ['西西里', '橙拉'],
+                'filter_rules': None  # 不过滤，取所有
+            },
+            '缇苏': {
+                'search_keywords': ['缇苏'],
+                'filter_rules': ['缇苏传媒', '缇苏网络']  # 只取这两个
+            },
+            '门牙': {
+                'search_keywords': ['门牙'],
+                'filter_rules': ['门牙', '门牙MCN']  # 只取这两个
+            },
+            '方片': {
+                'search_keywords': ['方片'],
+                'filter_rules': lambda name: name.strip() == '方片'  # 只取"方片"两个字
+            },
+            '古麦': {
+                'search_keywords': ['古麦'],
+                'filter_rules': ['古麦传媒', '古麦嘉禾']  # 只取这两个
+            },
+            '仙梓': {
+                'search_keywords': ['仙梓'],
+                'filter_rules': ['仙梓文化', '仙梓运动']  # 只取这两个
+            },
+            '二咖': {
+                'search_keywords': ['二咖'],
+                'filter_rules': lambda name: '二咖传媒' in name  # 取包含"二咖传媒"的
+            },
+            '丁丁': {
+                'search_keywords': ['集星文化', '尚世文化', '长沙丁丁', '明诚文化', '掌邦文化',
+                                  '滕云文化', '鹿鼎文化', '丁游文化'],
+                'filter_rules': lambda name: (
+                    name in ['集星文化', '尚世文化', '明诚文化', '掌邦文化',
+                            '滕云文化', '鹿鼎文化', '丁游文化'] or
+                    name in ['长沙丁丁聚象文化', '长沙丁丁时代文化', '长沙丁丁文化传媒']
+                )
+            }
+        }
 
-        self.setup_browser()
+        # 初始化浏览器相关属性为None，延迟到run方法中初始化
+        self.playwright = None
+        self.context = None
+        self.browser = None
+        self.page = None
 
     def setup_logger(self):
         """设置日志"""
@@ -921,37 +961,11 @@ class QianguaMcnDailyRankSpider:
             retention="7 days"
         )
 
-    def load_config(self):
-        """加载配置文件"""
-        try:
-            config = configparser.ConfigParser()
-            config.read(self.config_file, encoding='utf-8')
-
-            # 读取搜索关键词列表
-            keywords_str = config.get('SEARCH', 'keywords', fallback='')
-            self.search_keywords = [kw.strip() for kw in keywords_str.split(',') if kw.strip()]
-
-            # 读取设置
-            self.click_delay_min = config.getfloat('SETTINGS', 'click_delay_min', fallback=0.8)
-            self.click_delay_max = config.getfloat('SETTINGS', 'click_delay_max', fallback=1.8)
-
-            logger.info(f"配置加载成功: 关键词数量={len(self.search_keywords)}, 关键词={self.search_keywords}")
-        except FileNotFoundError:
-            logger.warning(f"配置文件不存在: {self.config_file}，使用默认配置")
-            self.search_keywords = []
-            self.click_delay_min = 0.8
-            self.click_delay_max = 1.8
-        except Exception as e:
-            logger.error(f"加载配置文件失败: {str(e)}，使用默认配置")
-            self.search_keywords = []
-            self.click_delay_min = 0.8
-            self.click_delay_max = 1.8
-
     def human_delay(self, min_sec=None, max_sec=None):
         """模拟人工延迟"""
         try:
-            min_delay = self.click_delay_min if min_sec is None else min_sec
-            max_delay = self.click_delay_max if max_sec is None else max_sec
+            min_delay = 0.8 if min_sec is None else min_sec
+            max_delay = 1.8 if max_sec is None else max_sec
             if max_delay < min_delay:
                 min_delay, max_delay = max_delay, min_delay
             delay = random.uniform(min_delay, max_delay)
@@ -961,17 +975,70 @@ class QianguaMcnDailyRankSpider:
             logger.debug(f"模拟延时失败: {e}, 使用默认1秒")
             time.sleep(1)
 
+    def find_chrome_executable(self):
+        """查找Chrome可执行文件路径"""
+        # 常见的Chrome安装路径
+        possible_paths = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe"),
+            r"D:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"D:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            r"E:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"E:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ]
+
+        # 检查每个可能的路径
+        for path in possible_paths:
+            if os.path.exists(path):
+                logger.info(f"找到Chrome浏览器: {path}")
+                return path
+
+        # 如果都没找到，尝试从注册表读取（Windows）
+        try:
+            import winreg
+            # 尝试从注册表获取Chrome路径
+            key_paths = [
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
+                r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
+            ]
+
+            for key_path in key_paths:
+                try:
+                    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path)
+                    chrome_path, _ = winreg.QueryValueEx(key, "")
+                    winreg.CloseKey(key)
+                    if os.path.exists(chrome_path):
+                        logger.info(f"从注册表找到Chrome浏览器: {chrome_path}")
+                        return chrome_path
+                except WindowsError:
+                    continue
+        except Exception as e:
+            logger.debug(f"从注册表读取Chrome路径失败: {e}")
+
+        # 如果还是没找到，返回None
+        logger.error("未找到Chrome浏览器，请确保已安装Google Chrome")
+        return None
+
     def setup_browser(self):
         """初始化浏览器"""
         self.playwright = sync_playwright().start()
         user_data_dir = os.path.join(self.base_dir, 'chrome_user_data')
         os.makedirs(user_data_dir, exist_ok=True)
 
+        # 查找Chrome可执行文件
+        chrome_path = self.find_chrome_executable()
+
+        if not chrome_path:
+            logger.error("无法找到Chrome浏览器，程序将退出")
+            logger.error("请安装Google Chrome浏览器，或检查Chrome是否安装在标准路径")
+            sys.exit(1)
+
         self.context = self.playwright.chromium.launch_persistent_context(
             user_data_dir,
             headless=False,
             channel="chrome",
-            executable_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            executable_path=chrome_path,
             no_viewport=True,
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             args=[
@@ -1029,29 +1096,29 @@ class QianguaMcnDailyRankSpider:
         """执行登录操作"""
         try:
             logger.info("开始登录...")
-            self.page.click("text=登录/注册")
-            self.human_delay(1.5, 2.5)
-
-            self.page.click("text=手机登录")
-            self.human_delay(1.5, 2.5)
-
-            # 输入账号密码
-            self.page.fill("input[placeholder='请输入手机号']", '13151572333')
-            self.human_delay(1.0, 1.8)
-            self.page.fill("input[placeholder='请输入登录密码']", '12345678abc')
-            self.human_delay(1.0, 1.8)
-
-            # 勾选协议
-            self.page.click('.el-checkbox__inner')
-            self.human_delay(0.8, 1.4)
-
-            # 点击登录按钮
-            self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
-            self.human_delay(1.0, 2.0)
-
-            logger.info("已点击登录按钮,等待滑块验证...")
-            logger.info("请手动完成滑块验证并点击登录!")
-            self.human_delay(1.5, 2.5)
+            # self.page.click("text=登录/注册")
+            # self.human_delay(1.5, 2.5)
+            #
+            # self.page.click("text=手机登录")
+            # self.human_delay(1.5, 2.5)
+            #
+            # # 输入账号密码
+            # self.page.fill("input[placeholder='请输入手机号']", '13151572333')
+            # self.human_delay(1.0, 1.8)
+            # self.page.fill("input[placeholder='请输入登录密码']", '12345678abc')
+            # self.human_delay(1.0, 1.8)
+            #
+            # # 勾选协议
+            # self.page.click('.el-checkbox__inner')
+            # self.human_delay(0.8, 1.4)
+            #
+            # # 点击登录按钮
+            # self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
+            # self.human_delay(1.0, 2.0)
+            #
+            # logger.info("已点击登录按钮,等待滑块验证...")
+            # logger.info("请手动完成滑块验证并点击登录!")
+            # self.human_delay(1.5, 2.5)
 
             # 等待用户手动完成滑块验证和登录
             logger.info("等待用户手动完成滑块验证和登录(最多等待60秒)...")
@@ -1567,10 +1634,17 @@ class QianguaMcnDailyRankSpider:
                     except Exception:
                         increase_value_decimal = Decimal('0.00')
 
+                    # 获取预估商业收入并转换为万元（保留两位小数）
+                    rank_value = item.get('RankValue') or 0
+                    try:
+                        rank_value_wan = round(rank_value / 10000, 2)
+                    except Exception:
+                        rank_value_wan = 0.00
+
                     # 构造数据字典
                     data_dict = {
                         '昵称': item.get('NickName') or '',
-                        '预估商业收入': item.get('RankValue') or 0,
+                        '预估商业收入': rank_value_wan,
                         '合作品牌数': item.get('BrandCount') or 0,
                         '标签': tags_text,
                         '合作博主数': item.get('BloggerCount') or 0,
@@ -1614,6 +1688,84 @@ class QianguaMcnDailyRankSpider:
             logger.error(f"导出Excel时出错: {str(e)}")
             return False
 
+    def filter_mcn_data(self, mcn_name, data_list):
+        """根据MCN名称过滤数据"""
+        # 检查是否在合并规则中
+        merge_rule = self.mcn_merge_rules.get(mcn_name)
+
+        if not merge_rule:
+            # 如果不在合并规则中，返回所有数据
+            return data_list
+
+        filter_rules = merge_rule.get('filter_rules')
+
+        if filter_rules is None:
+            # 没有过滤规则，返回所有数据
+            return data_list
+
+        filtered_data = []
+
+        for data in data_list:
+            nickname = data.get('昵称', '')
+
+            if callable(filter_rules):
+                # 如果是函数，调用函数判断
+                if filter_rules(nickname):
+                    filtered_data.append(data)
+            elif isinstance(filter_rules, list):
+                # 如果是列表，检查是否在列表中
+                if nickname in filter_rules:
+                    filtered_data.append(data)
+
+        logger.info(f"MCN '{mcn_name}' 过滤前: {len(data_list)} 条，过滤后: {len(filtered_data)} 条")
+        return filtered_data
+
+    def merge_mcn_data(self, mcn_name, data_list):
+        """合并MCN数据"""
+        if not data_list:
+            return None
+
+        # 合并数据
+        merged_data = {
+            '昵称': mcn_name,
+            '预估商业收入': 0,
+            '合作品牌数': 0,
+            '标签': '',
+            '合作博主数': 0,
+            '合作笔记数': 0,
+        }
+
+        tags_set = set()
+
+        for data in data_list:
+            merged_data['预估商业收入'] += data.get('预估商业收入', 0)
+            merged_data['合作品牌数'] += data.get('合作品牌数', 0)
+            merged_data['合作博主数'] += data.get('合作博主数', 0)
+            merged_data['合作笔记数'] += data.get('合作笔记数', 0)
+
+            # 收集标签
+            tags = data.get('标签', '')
+            if tags:
+                tags_set.update(tags.split(','))
+
+        # 合并标签
+        merged_data['标签'] = ','.join(sorted(tags_set))
+
+        # 保留预估商业收入的两位小数
+        merged_data['预估商业收入'] = round(merged_data['预估商业收入'], 2)
+
+        logger.info(f"MCN '{mcn_name}' 合并了 {len(data_list)} 条数据，总收入: {merged_data['预估商业收入']}万")
+        return merged_data
+
+    def get_search_keywords_for_mcn(self, mcn_name):
+        """获取MCN的搜索关键词列表"""
+        merge_rule = self.mcn_merge_rules.get(mcn_name)
+
+        if merge_rule:
+            return merge_rule.get('search_keywords', [mcn_name])
+        else:
+            return [mcn_name]
+
     def scrape_daily_rank_data(self, keywords):
         """抓取MCN榜单数据"""
         try:
@@ -1638,33 +1790,57 @@ class QianguaMcnDailyRankSpider:
                 logger.error(f"点击{self.rank_type}按钮失败")
                 return []
 
-            all_extracted_data = []
+            all_merged_data = []
 
             # 如果没有提供关键词，则只获取一次当前页面数据
             if not keywords:
                 logger.info("未提供搜索关键词，获取当前页面数据")
                 self.human_delay(2.0, 3.0)
                 extracted_data = self.extract_rank_data()
-                all_extracted_data.extend(extracted_data)
+                all_merged_data.extend(extracted_data)
             else:
-                # 循环搜索每个关键词
-                for keyword in keywords:
-                    logger.info(f"开始处理关键词: {keyword}")
+                # 循环处理每个MCN
+                for mcn_name in keywords:
+                    logger.info(f"开始处理MCN: {mcn_name}")
 
-                    # 搜索关键词
-                    if not self.search_keyword(keyword):
-                        logger.error(f"搜索关键词 {keyword} 失败")
-                        continue
+                    # 获取该MCN需要搜索的关键词列表
+                    search_keywords = self.get_search_keywords_for_mcn(mcn_name)
+                    logger.info(f"MCN '{mcn_name}' 需要搜索的关键词: {search_keywords}")
 
-                    # 提取数据
-                    extracted_data = self.extract_rank_data()
-                    all_extracted_data.extend(extracted_data)
+                    mcn_all_data = []
 
-                    # 稍作延迟再处理下一个关键词
+                    # 搜索每个关键词
+                    for keyword in search_keywords:
+                        logger.info(f"搜索关键词: {keyword}")
+
+                        # 搜索关键词
+                        if not self.search_keyword(keyword):
+                            logger.error(f"搜索关键词 {keyword} 失败")
+                            continue
+
+                        # 提取数据
+                        extracted_data = self.extract_rank_data()
+                        mcn_all_data.extend(extracted_data)
+
+                        # 稍作延迟
+                        time.sleep(1)
+
+                    # 过滤数据
+                    filtered_data = self.filter_mcn_data(mcn_name, mcn_all_data)
+
+                    # 合并数据
+                    if filtered_data:
+                        merged_data = self.merge_mcn_data(mcn_name, filtered_data)
+                        if merged_data:
+                            all_merged_data.append(merged_data)
+                    else:
+                        logger.warning(f"MCN '{mcn_name}' 没有符合条件的数据")
+
+                    # 稍作延迟再处理下一个MCN
                     time.sleep(2)
 
-            logger.info(f"所有关键词处理完成，共提取 {len(all_extracted_data)} 条数据")
-            return all_extracted_data
+            logger.info(f"所有MCN处理完成，共得到 {len(all_merged_data)} 条合并数据")
+            return all_merged_data
 
         except Exception as e:
             logger.error(f"抓取MCN榜单数据时出错: {str(e)}")
@@ -1674,6 +1850,10 @@ class QianguaMcnDailyRankSpider:
         """运行爬虫"""
         try:
             logger.info("开始运行爬虫...")
+
+            # 在运行时才初始化浏览器
+            logger.info("正在初始化浏览器...")
+            self.setup_browser()
 
             # 检查并处理登录
             if not self.check_and_handle_login():
@@ -1735,6 +1915,40 @@ if __name__ == '__main__':
 
         logger.info(f"用户选择的MCN顺序: {selected_mcns}")
 
+        # 处理MCN选择，合并同属一家的机构
+        processed_mcns = []
+        mcn_groups = {
+            '西西里/橙拉': ['西西里', '橙拉'],
+            '丁丁': ['集星文化', '尚世文化', '长沙丁丁', '明诚文化', '掌邦文化', '滕云文化', '鹿鼎文化', '丁游文化']
+        }
+
+        used_mcns = set()  # 记录已经被使用的MCN
+
+        for mcn in selected_mcns:
+            if mcn in used_mcns:
+                continue
+
+            # 检查是否属于某个组
+            found_group = False
+            for group_name, group_members in mcn_groups.items():
+                if mcn in group_members:
+                    # 检查这个组是否已经被添加过
+                    if group_name not in processed_mcns:
+                        # 检查用户是否选择了这个组的任何成员
+                        has_member = any(m in selected_mcns for m in group_members)
+                        if has_member:
+                            processed_mcns.append(group_name)
+                            used_mcns.update(group_members)
+                    found_group = True
+                    break
+
+            # 如果不属于任何组，直接添加
+            if not found_group:
+                processed_mcns.append(mcn)
+                used_mcns.add(mcn)
+
+        logger.info(f"处理后的MCN列表: {processed_mcns}")
+
         # 显示榜单类型选择对话框
         while True:
             logger.info("显示榜单类型选择对话框...")
@@ -1778,8 +1992,8 @@ if __name__ == '__main__':
                     custom_date=custom_date
                 )
 
-                # 使用用户选择的MCN列表作为关键词
-                spider.run(keywords=selected_mcns)
+                # 使用处理后的MCN列表作为关键词
+                spider.run(keywords=processed_mcns)
 
                 # 程序执行完成，退出所有循环
                 sys.exit(0)

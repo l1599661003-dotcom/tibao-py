@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import sys
 import configparser
 import time
@@ -145,7 +146,7 @@ class WaicaiPGYSpider:
         """抓取博主信息 - 重构版本，匹配PHP逻辑"""
         try:
             # 查询需要更新的博主数据 - 匹配PHP查询逻辑
-            api_url = f"https://tianji.fangpian999.com/api/admin/creatorBusiness/getNewerCreator?type=3&page={self.config['PGY_LOGIN_CONFIG']['page']}&pageSize={self.config['PGY_LOGIN_CONFIG']['pageSize']}"
+            api_url = f"https://tianji.fangpian999.com/api/admin/creatorBusiness/getNewerCreator?type=3&page={self.config['PGY_LOGIN_CONFIG']['page']}&pageSize=1000"
 
             headers = {"Content-Type": "application/json"}
             logger.info(f"正在请求API: {api_url}")
@@ -165,6 +166,13 @@ class WaicaiPGYSpider:
                 logger.debug(f"第一个博主数据示例: {response_data[0]}")
 
             for idx, url in enumerate(response_data, 1):
+                pid = url['platform_user_id']
+                if (
+                        len(pid) < 20
+                        or pid.endswith(("aeace",))
+                        or pid.startswith(("https://xhslink.com", "59631e815e87e772f99c19", "5cc164c7000000001603b80f"))
+                ):
+                    continue
                 # 清空payload数据，准备处理下一个博主
                 self.payload = {
                     "apis": [
@@ -190,7 +198,7 @@ class WaicaiPGYSpider:
                         logger.info(f"✓ 成功同步博主 {url.get('creator_nickname', 'Unknown')} 的数据到API")
                     else:
                         logger.warning(f"✗ 同步博主 {url.get('creator_nickname', 'Unknown')} 的数据到API失败")
-                    time.sleep(6)
+                    time.sleep(random.uniform(8, 10))
 
                 except Exception as blogger_error:
                     logger.error(f"处理博主 {url.get('creator_nickname', 'Unknown')} 时出错: {str(blogger_error)}")
@@ -244,7 +252,7 @@ class WaicaiPGYSpider:
             if response.status_code == 200:
                 try:
                     response_data = response.json()  # 尝试解析 JSON 内容
-                    if response_data.get('status') == 'success':  # 假设接口返回的 JSON 有 status 字段
+                    if response_data.get('code') == 200:  # 假设接口返回的 JSON 有 status 字段
                         logger.debug(f"同步成功: {response_data}")
                         return True
                     else:

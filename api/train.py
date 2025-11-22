@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
-from command.培训用 import automatic_product, update_yaoyue_total, get_table_content, \
-    automatic_product_01
+from command.pgy.打标签 import automatic_product
+from command.培训用.定时.SendYaoyue import automatic_product_01, update_yaoyue_total, get_table_content
 
 router = APIRouter()
 

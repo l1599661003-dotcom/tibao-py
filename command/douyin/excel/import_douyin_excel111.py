@@ -14,13 +14,18 @@ def export_douyin_kol_data():
         # 使用SQLAlchemy ORM查询基础数据
         query = session.query(
             DouyinSearchList.star_id,
-            DouYinKolRealization.douyin_nickname,
+            DouyinSearchList.attribute_datas["nick_name"].as_string().label("nick_name"),
             DouYinKolRealization.douyin_link,
             DouYinKolRealization.price_info,
-            DouYinKolRealization.follower_count,
+            DouyinSearchList.attribute_datas["follower"].as_string().label("follower"),
             DouYinKolRealization.author_base_info,
             DouYinKolRealization.self_intro,
             DouyinSearchList.category,
+            DouyinSearchList.updated_at,
+            DouyinSearchList.attribute_datas["city"].as_string().label("city"),
+            DouyinSearchList.attribute_datas["price_1_20"].as_string().label("price_1_20"),
+            DouyinSearchList.attribute_datas["price_20_60"].as_string().label("price_20_60"),
+            DouyinSearchList.attribute_datas["price_60"].as_string().label("price_60"),
         ).outerjoin(
             DouYinKolRealization,
             DouyinSearchList.star_id == DouYinKolRealization.douyin_user_id
@@ -63,11 +68,13 @@ def export_douyin_kol_data():
             author_base_info_json = row[5] or '{}'
             self_intro = row[6] or ''
             category = row[7] or ''
+            updated_at = row[8] or ''
+            city = row[9] or ''
+            price_1_20 = row[10] or ''
+            price_21_60 = row[11] or ''
+            price_60_plus = row[12] or ''
 
             # 解析价格信息
-            price_1_20 = ''
-            price_21_60 = ''
-            price_60_plus = ''
             price_short_direct = ''
 
             try:
@@ -79,13 +86,7 @@ def export_douyin_kol_data():
                             price_value = price_item.get('price', 0)
                             desc = price_item.get('desc', '')
 
-                            if i == 0:
-                                price_1_20 = f"{price_value}"
-                            elif i == 1:
-                                price_21_60 = f"{price_value}"
-                            elif i == 2:
-                                price_60_plus = f"{price_value}"
-                            elif i == 3:
+                            if i == 3:
                                 price_short_direct = f"{price_value}"
             except (json.JSONDecodeError, TypeError) as e:
                 print(f"解析价格信息失败 (star_id: {star_id}): {str(e)}")
@@ -107,14 +108,12 @@ def export_douyin_kol_data():
 
             # 提取MCN信息
             mcn_name = ''
-            city = ''
             gender = ''
             tags_str = ''
             tags_relation = ''
             try:
                 author_info = json.loads(author_base_info_json) if author_base_info_json else {}
                 mcn_name = author_info.get('mcn_name', '') or ''
-                city = author_info.get('city', '') or ''
                 gender_raw = author_info.get('gender', '') or ''
                 tags = author_info.get('content_theme_labels', []) or []
                 tags_relation = author_info.get('tags_relation', '') or ''
@@ -152,6 +151,7 @@ def export_douyin_kol_data():
                 'gmv_90d': gmv_90d,
                 '微信号': self_intro,
                 '分类': category,
+                '抓取时间': updated_at,
             })
 
         # 创建DataFrame并导出Excel
@@ -170,7 +170,7 @@ def export_douyin_kol_data():
         # 显示统计信息
         print("\n📈 数据统计:")
         print(f"总KOL数量: {len(excel_data)}")
-        print(f"有粉丝数的KOL: {len([x for x in excel_data if x['粉丝数'] > 0])}")
+        print(f"有粉丝数的KOL: {len([x for x in excel_data if int(x['粉丝数']) > 0])}")
         print(f"有90天商单的KOL: {len([x for x in excel_data if x['90天商单数'] > 0])}")
         print(f"有MCN信息的KOL: {len([x for x in excel_data if x['MCN']])}")
         print(f"有微信号的KOL: {len([x for x in excel_data if x['微信号']])}")

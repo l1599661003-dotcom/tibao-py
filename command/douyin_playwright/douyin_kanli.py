@@ -100,6 +100,7 @@ class DouYinSpider:
         # 新增：存储所有API数据的字典 - 空对象
         self.kol_api_data = {}
         self.other_api_data = {}
+        self.yingxiao_api_data = []  # 营销传播数据数组
 
         # 浏览器相关属性初始化
         self.playwright = None
@@ -128,6 +129,7 @@ class DouYinSpider:
             # 重新初始化KOL数据结构 - 空对象，只填充基本信息
             self.kol_api_data = {}
             self.other_api_data = {}
+            self.yingxiao_api_data = []  # 重置营销传播数组
             # 添加API响应处理标志
             self.api_response_processed = False
 
@@ -189,10 +191,8 @@ class DouYinSpider:
 
                             if '个人视频' in btn_text:
                                 personal_video_btn = btn
-                                self.logger.info(f"找到个人视频按钮，索引: {i}")
                             elif '星图视频' in btn_text:
                                 xingtu_video_btn = btn
-                                self.logger.info(f"找到星图视频按钮，索引: {i}")
 
                         # 检查星图视频是否被禁用
                         xingtu_disabled = False
@@ -341,8 +341,6 @@ class DouYinSpider:
                                 waited_time = 0
                                 api_found = False
 
-                                self.logger.info(f"开始轮询等待个人视频 spread_info API (最多等待{max_wait_time}秒)...")
-
                                 while waited_time < max_wait_time:
                                     # 检查是否已经有个人视频的 spread_info API
                                     personal_spread_count = sum(
@@ -352,7 +350,6 @@ class DouYinSpider:
                                     )
 
                                     if personal_spread_count > 0:
-                                        self.logger.info(f"✅ 检测到个人视频 spread_info API！等待时间: {waited_time:.1f}秒")
                                         api_found = True
                                         break
 
@@ -365,7 +362,6 @@ class DouYinSpider:
                                     self.logger.warning(f"⏰ 等待超时({max_wait_time}秒)，未检测到个人视频 spread_info API")
 
                                 # 调试：打印所有捕获到的API
-                                self.logger.info(f"📊 点击个人视频后，api_data 中有 {len(self.api_data)} 个API")
                                 for api_url in self.api_data.keys():
                                     self.logger.info(f"  - {api_url}")
 
@@ -514,16 +510,47 @@ class DouYinSpider:
 
                 fan_portrait_button = self.page.locator("text=粉丝画像")
                 if fan_portrait_button and fan_portrait_button.is_visible():
+                    # 【重要】点击前清空 api_data，确保只捕获粉丝画像相关的API
+                    self.api_data = {}
+                    self.logger.info("已清空 api_data，准备点击粉丝画像按钮")
+
                     time.sleep(0.5)
                     fan_portrait_button.click()
                     self.logger.info("成功点击粉丝画像按钮")
-                    try:
-                        self.page.wait_for_load_state('networkidle', timeout=5000)
-                    except Exception as e:
-                        self.logger.warning(f"等待页面网络空闲时出错: {str(e)}")
 
-                    # 等待粉丝数据API加载
-                    time.sleep(3)
+                    # 【关键】主动等待粉丝分布API出现
+                    max_wait_time = 15  # 最多等待15秒
+                    poll_interval = 0.5  # 每0.5秒检查一次
+                    waited_time = 0
+                    api_found = False
+
+                    self.logger.info(f"开始轮询等待粉丝分布 API (最多等待{max_wait_time}秒)...")
+
+                    while waited_time < max_wait_time:
+                        # 检查是否已经有粉丝分布的 API
+                        fans_api_count = sum(
+                            1 for url in self.api_data.keys()
+                            if '/api/data_sp/get_author_fans_distribution' in url
+                        )
+
+                        if fans_api_count > 0:
+                            self.logger.info(f"✅ 检测到粉丝分布 API！等待时间: {waited_time:.1f}秒")
+                            api_found = True
+                            break
+
+                        # 【关键】使用 page.wait_for_timeout 而不是 time.sleep
+                        # 这样可以让 playwright 事件循环处理响应
+                        self.page.wait_for_timeout(int(poll_interval * 1000))
+                        waited_time += poll_interval
+
+                    if not api_found:
+                        self.logger.warning(f"⏰ 等待超时({max_wait_time}秒)，未检测到粉丝分布 API")
+
+                    # 调试：打印所有捕获到的API
+                    self.logger.info(f"📊 点击粉丝画像后，api_data 中有 {len(self.api_data)} 个API")
+                    for api_url in self.api_data.keys():
+                        self.logger.info(f"  - {api_url}")
+
                     self.logger.info("处理连接用户页面的API数据...")
 
                     # 1. 处理连接用户分布 (link_card)
@@ -537,14 +564,21 @@ class DouYinSpider:
                             break
 
                     # 2. 处理粉丝数据 (fans_distribution)
+                    self.logger.info(f"开始查找粉丝分布API，当前api_data有 {len(self.api_data)} 个API")
+                    fans_api_found = False
                     for api_url, response_info in self.api_data.items():
                         if 'data' not in response_info:
                             continue
                         if '/api/data_sp/get_author_fans_distribution' in api_url:
+                            fans_api_found = True
                             response_data = response_info['data']
+                            self.logger.info(f"✅ 找到粉丝分布API: {api_url}")
                             self.logger.info("处理粉丝数据分布...")
                             self._process_author_fans_distribution(response_data, user_id)
                             break
+
+                    if not fans_api_found:
+                        self.logger.warning("⚠️ 未找到粉丝分布API数据")
                 else:
                     self.logger.warning("未找到粉丝画像按钮，跳过粉丝数据获取")
 
@@ -566,8 +600,16 @@ class DouYinSpider:
         """统一保存所有收集到的API数据到远程接口"""
         try:
             self.logger.info(f"开始统一保存所有API数据到远程接口，用户ID: {user_id}")
+            print("=" * 60)
+            print("kol_api_data:")
             print(self.kol_api_data)
+            print("=" * 60)
+            print("other_api_data:")
             print(self.other_api_data)
+            print("=" * 60)
+            print("yingxiao_api_data:")
+            print(self.yingxiao_api_data)
+            print("=" * 60)
 
             # 构建payload，参考get_pgy_intro.py的格式
             payload = {
@@ -579,6 +621,8 @@ class DouYinSpider:
                     {"tb_name": "blogger_fans_summary", "tb_data": []},
                     {"tb_name": "blogger_fans_profile", "tb_data": []},
                     {"tb_name": "blogger_fans_history", "tb_data": []},
+                    {"tb_name": "douyin_kol_profile", "tb_data": [self.other_api_data]},
+                    {"tb_name": "douyin_kol_marketing_stats", "tb_data": [self.yingxiao_api_data]},
                 ],
                 "client_id": 1
             }
@@ -615,30 +659,28 @@ class DouYinSpider:
             raise
 
     def _process_marketing_info(self, response_data: Dict[str, Any]):
-        """处理营销信息数据 - 参考get_douyin_guakao.py第255-269行"""
+        """处理营销信息数据 - 根据新表结构调整字段名"""
         try:
             if not response_data:
                 self.logger.error("营销信息API响应数据为空")
                 return
 
-            # 3. 报价
+            # 报价信息
             if 'price_info' in response_data:
                 price_list = response_data['price_info']
                 for price in price_list:
                     video_type = price.get('video_type')
                     price_value = price.get('price', 0)
                     if video_type == 1:
-                        self.other_api_data['price_first'] = price_value
+                        self.other_api_data['price_1_20s'] = price_value  # 1-20秒报价
                     elif video_type == 2:
-                        self.other_api_data['price_two'] = price_value
+                        self.other_api_data['price_20_60s'] = price_value  # 20-60秒报价
                         self.kol_api_data['picturePrice'] = price_value
                         self.kol_api_data['videoPrice'] = price_value
                     elif video_type == 71:
-                        self.other_api_data['price_three'] = price_value
+                        self.other_api_data['price_60s_plus'] = price_value  # 60秒以上报价
                     elif video_type == 150:
-                        self.other_api_data['price_four'] = price_value
-
-            self.logger.info(f"✅ 报价信息处理完成：20-60s报价 {self.kol_api_data.get('20-60s报价', '')}")
+                        self.other_api_data['price_platform_raw'] = price_value  # 短直种草平台裸价
 
         except Exception as e:
             self.logger.error(f"处理营销信息时出错: {str(e)}")
@@ -674,9 +716,8 @@ class DouYinSpider:
             else:
                 self.kol_api_data['contentTags'] = []
 
-            self.other_api_data['sec_uid'] = response_data.get('sec_uid', '')
-
-            self.logger.info(f"✅ 基本信息处理完成：{self.kol_api_data.get('达人昵称', '')}")
+            self.other_api_data['douyin_sec_uid'] = response_data.get('sec_uid', '')
+            self.other_api_data['platform_user_id'] = response_data.get('id')
 
         except Exception as e:
             self.logger.error(f"处理作者基本信息时出错: {str(e)}")
@@ -692,8 +733,6 @@ class DouYinSpider:
             # 2. 粉丝数赞藏
             self.kol_api_data['fansNum'] = response_data.get('follower', 0)
             self.kol_api_data['likeCollectCountInfo'] = response_data.get('link_cnt', 0)
-
-            self.logger.info(f"✅ 粉丝数据处理完成：粉丝 {self.kol_api_data.get('粉丝数', '')}")
 
         except Exception as e:
             self.logger.error(f"处理作者显示数据时出错: {str(e)}")
@@ -725,14 +764,12 @@ class DouYinSpider:
             self.other_api_data['platform_hot_rate'] = response_data.get('platform_hot_rate', '')
             self.other_api_data['expect_read'] = response_data.get('vv', '')
 
-            self.logger.info(f"✅ 商业传播信息处理完成：预估CPE {self.kol_api_data.get('20-60秒预估CPE', '')}")
-
         except Exception as e:
             self.logger.error(f"处理商业传播信息数据时出错: {str(e)}")
             self.logger.error(f"错误详情: {traceback.format_exc()}")
 
     def _process_author_spread_info(self, response_data: Dict[str, Any], user_id: str):
-        """处理作者传播信息API数据 - 参考get_douyin_guakao.py第271-347行"""
+        """处理作者传播信息API数据 - 存入yingxiao_api_data数组"""
         try:
             self.logger.info(f"开始处理传播信息API数据，用户ID: {user_id}，视频类型: {self.current_video_type}")
 
@@ -755,60 +792,61 @@ class DouYinSpider:
             interact_rate = response_data.get('interact_rate', {})
             interact_rate_value = interact_rate.get('value', '') if isinstance(interact_rate, dict) else ''
 
-            # 根据当前视频类型填充不同的字段到 other_api_data
+            # 计算CPE和CPC
+            price_20_60 = self.kol_api_data.get('videoPrice', 0)
+            cpe_value = None
+            cpc_value = None
+
+            if price_20_60 and interact_total:
+                try:
+                    cpe_value = round(float(price_20_60) / float(interact_total), 2)
+                except:
+                    pass
+
+            if price_20_60 and play_mid:
+                try:
+                    cpc_value = round(float(price_20_60) / float(play_mid), 2)
+                except:
+                    pass
+
+            # 根据当前视频类型创建数据对象并添加到yingxiao_api_data数组
             if self.current_video_type == 'xingtu':
-                # 4. 传播价值(星图)
-                self.other_api_data['business_play_volume'] = play_mid
-                self.other_api_data['business_interaction_volume'] = interact_total
-                self.other_api_data['business_avg_duration'] = avg_duration
-                self.other_api_data['business_completion_rate'] = play_over_rate_value
-                self.other_api_data['business_interaction_rate'] = interact_rate_value
-                self.other_api_data['business_likes'] = like_avg
-                self.other_api_data['business_shares'] = share_avg
-                self.other_api_data['business_comments'] = comment_avg
-
-                # 计算CPE和CPC（使用 video_price 字段）
-                price_20_60 = self.kol_api_data.get('video_price', 0)
-                if price_20_60 and interact_total:
-                    try:
-                        self.other_api_data['business_cpe'] = round(float(price_20_60) / float(interact_total), 2)
-                    except:
-                        pass
-
-                if price_20_60 and play_mid:
-                    try:
-                        self.other_api_data['business_cpc'] = round(float(price_20_60) / float(play_mid), 2)
-                    except:
-                        pass
-
-                self.logger.info(f"✅ 星图视频传播信息已填充 (business=1)")
+                # 星图视频数据 (douyin_business=1)
+                xingtu_data = {
+                    'platform_user_id': user_id,
+                    'douyin_business': 1,
+                    'play_median': play_mid,
+                    'interaction_volume': interact_total,
+                    'avg_duration': avg_duration,
+                    'completion_rate': play_over_rate_value,
+                    'interaction_rate': interact_rate_value,
+                    'douyin_likes': like_avg,
+                    'douyin_shares': share_avg,
+                    'douyin_comments': comment_avg,
+                    'douyin_cpe': cpe_value,
+                    'douyin_cpc': cpc_value
+                }
+                self.yingxiao_api_data.append(xingtu_data)
+                self.logger.info(f"✅ 星图视频传播信息已添加到yingxiao_api_data (douyin_business=1)")
 
             elif self.current_video_type == 'personal':
-                # 5. 传播价值(日常)
-                self.other_api_data['daily_play_volume'] = play_mid
-                self.other_api_data['daily_interaction_volume'] = interact_total
-                self.other_api_data['daily_avg_duration'] = avg_duration
-                self.other_api_data['daily_completion_rate'] = play_over_rate_value
-                self.other_api_data['daily_interaction_rate'] = interact_rate_value
-                self.other_api_data['daily_likes'] = like_avg
-                self.other_api_data['daily_shares'] = share_avg
-                self.other_api_data['daily_comments'] = comment_avg
-
-                # 计算CPE和CPC（使用 video_price 字段）
-                price_20_60 = self.kol_api_data.get('video_price', 0)
-                if price_20_60 and interact_total:
-                    try:
-                        self.other_api_data['daily_cpe'] = round(float(price_20_60) / float(interact_total), 2)
-                    except:
-                        pass
-
-                if price_20_60 and play_mid:
-                    try:
-                        self.other_api_data['daily_cpc'] = round(float(price_20_60) / float(play_mid), 2)
-                    except:
-                        pass
-
-                self.logger.info(f"✅ 个人视频传播信息已填充 (business=0)")
+                # 个人视频数据 (douyin_business=0)
+                personal_data = {
+                    'platform_user_id': user_id,
+                    'douyin_business': 0,
+                    'play_median': play_mid,
+                    'interaction_volume': interact_total,
+                    'avg_duration': avg_duration,
+                    'completion_rate': play_over_rate_value,
+                    'interaction_rate': interact_rate_value,
+                    'douyin_likes': like_avg,
+                    'douyin_shares': share_avg,
+                    'douyin_comments': comment_avg,
+                    'douyin_cpe': cpe_value,
+                    'douyin_cpc': cpc_value
+                }
+                self.yingxiao_api_data.append(personal_data)
+                self.logger.info(f"✅ 个人视频传播信息已添加到yingxiao_api_data (douyin_business=0)")
             else:
                 self.logger.warning(f"未知的视频类型: {self.current_video_type}，跳过保存")
 
@@ -921,7 +959,7 @@ class DouYinSpider:
             self.logger.error(f"错误详情: {traceback.format_exc()}")
 
     def _process_author_fans_distribution(self, response_data: Dict[str, Any], user_id: str):
-        """处理粉丝数据分布API数据 - 参考get_douyin_guakao.py第393-443行"""
+        """处理粉丝数据分布API数据 - 解析成JSON格式"""
         try:
             self.logger.info(f"开始处理粉丝数据分布API数据，用户ID: {user_id}")
 
@@ -929,8 +967,12 @@ class DouYinSpider:
                 self.logger.warning("粉丝数据分布API响应数据为空或缺少distributions字段")
                 return
 
-            # 10. 粉丝数据
             distributions = response_data['distributions']
+
+            # 初始化JSON对象
+            age_distribution = []  # 年龄分布（数组）
+            region_distribution = []  # 地域分布（数组）
+            crowd_distribution = []  # 八大人群分布（数组）
 
             for dist in distributions:
                 dist_type = dist.get('type')
@@ -938,61 +980,78 @@ class DouYinSpider:
 
                 # 性别分布 type=1
                 if dist_type == 1:
-                    total = sum([item.get('distribution_value', 0) for item in distribution_list])
+                    # 确保转换为数字类型
+                    total = sum([float(item.get('distribution_value', 0)) for item in distribution_list])
                     for item in distribution_list:
                         key = item.get('distribution_key')
-                        value = item.get('distribution_value', 0)
+                        value = float(item.get('distribution_value', 0))
                         if key == 'male' and total > 0:
                             self.other_api_data['male_fan_ratio'] = f"{round(value / total * 100, 2)}%"
                         elif key == 'female' and total > 0:
                             self.other_api_data['female_fan_ratio'] = f"{round(value / total * 100, 2)}%"
 
-                # 年龄分布 type=2
+                # 年龄分布 type=2 - 转成数组格式
                 elif dist_type == 2:
-                    total = sum([item.get('distribution_value', 0) for item in distribution_list])
+                    total = sum([float(item.get('distribution_value', 0)) for item in distribution_list])
                     if total > 0:
                         for item in distribution_list:
-                            key = item.get('distribution_key', '')
-                            value = item.get('distribution_value', 0)
-                            if key:
+                            age_range = item.get('distribution_key', '')
+                            value = float(item.get('distribution_value', 0))
+                            if age_range:
                                 percentage = round(value / total * 100, 2)
-                                self.other_api_data[f'age_{key}'] = f"{percentage}%"
+                                age_distribution.append({
+                                    'age_range': age_range,
+                                    'percentage': percentage
+                                })
 
-                # 地域分布 type=4
+                # 地域分布 type=4 - 转成JSON数组
                 elif dist_type == 4:
-                    total = sum([item.get('distribution_value', 0) for item in distribution_list])
+                    total = sum([float(item.get('distribution_value', 0)) for item in distribution_list])
                     if total > 0:
-                        region_list = []
                         for item in distribution_list:
-                            key = item.get('distribution_key', '')
-                            value = item.get('distribution_value', 0)
-                            if key:
+                            region_name = item.get('distribution_key', '')
+                            value = float(item.get('distribution_value', 0))
+                            if region_name:
                                 percentage = round(value / total * 100, 2)
-                                region_list.append((key, percentage))
-
+                                region_distribution.append({
+                                    'region': region_name,
+                                    'percentage': percentage
+                                })
                         # 按占比降序排序
-                        region_list.sort(key=lambda x: x[1], reverse=True)
+                        region_distribution.sort(key=lambda x: x['percentage'], reverse=True)
 
-                        # 拼接成字符串
-                        region_str = '、'.join([f"{region}:{pct}%" for region, pct in region_list])
-                        self.other_api_data['region_distribution'] = region_str
-
-                # 八大人群分布 type=1024
+                # 八大人群分布 type=1024 - 转成数组格式
                 elif dist_type == 1024:
-                    total = sum([item.get('distribution_value', 0) for item in distribution_list])
+                    total = sum([float(item.get('distribution_value', 0)) for item in distribution_list])
                     if total > 0:
                         for item in distribution_list:
-                            key = item.get('distribution_key', '')
-                            value = item.get('distribution_value', 0)
-                            if key:
+                            crowd_name = item.get('distribution_key', '')
+                            value = float(item.get('distribution_value', 0))
+                            if crowd_name:
                                 percentage = round(value / total * 100, 2)
-                                self.other_api_data[f'crowd_{key}'] = f"{percentage}%"
+                                crowd_distribution.append({
+                                    'crowd_type': crowd_name,
+                                    'percentage': percentage
+                                })
 
-                # 低于占比 type=256
+                # 低于占比 type=256 - 添加到八大人群数组末尾
                 elif dist_type == 256:
-                    self.other_api_data['below_ratio'] = dist.get('description', '')
+                    description = dist.get('description', '')
+                    if description:
+                        crowd_distribution.append({
+                            'crowd_type': 'below_average_description',
+                            'description': description
+                        })
 
-            self.logger.info(f"✅ 粉丝数据分布处理完成")
+            # 将JSON数组转为字符串存储
+            if age_distribution:
+                self.other_api_data['old_ratio'] = json.dumps(age_distribution, ensure_ascii=False)
+
+            if region_distribution:
+                self.other_api_data['region_distribution'] = json.dumps(region_distribution, ensure_ascii=False)
+
+            if crowd_distribution:
+                self.other_api_data['below_ratio'] = json.dumps(crowd_distribution, ensure_ascii=False)
 
         except Exception as e:
             self.logger.error(f"处理粉丝数据分布时出错: {str(e)}")

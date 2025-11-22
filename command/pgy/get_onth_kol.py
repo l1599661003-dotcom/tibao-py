@@ -17,7 +17,7 @@ from service.pgy_service import get_mcn_detail
 """
 header = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    "cookie": 'xsecappid=ratlin; a1=19a5cf26ee5w63uq36ju611dmouuigy3j2lg7yn9150000461147; webId=2c33a1c119c2e7c58cc5d63033e88400; customer-sso-sid=68c517569862889949167622gboyr7r07peq08kz; customerClientId=762272075365012; solar.beaker.session.id=AT-68c517569862889949118474uwsjagvx5hgxton8; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c517569862889949118474uwsjagvx5hgxton8; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c517569862889949118474uwsjagvx5hgxton8; loadts=1762496090249; acw_tc=0a0d0bc717624960901596873e1e85accb054ddfc65945d4d9d6267172e5c4',
+    "cookie": 'a1=19882f48bcap04qq1r777p9ggafrdrroz4abocygo50000339517; webId=e7111fec356dc781ca1d14d236afda9a; customerClientId=016216997022661; abRequestId=e7111fec356dc781ca1d14d236afda9a; x-user-id-creator.xiaohongshu.com=634cc30badd08a00019ee4e3; gid=yjYSKK8dd0uiyjYYJi4YD4SvS0U84AAyFWWW0klUjkk0iD28FfFFll888qqj2yW8DY2KKijK; x-user-id-ad-market.xiaohongshu.com=67bbea69000000000d009ec6; access-token-ad-market.xiaohongshu.com=customer.ad_market.AT-68c517561719769394855947z3wtukxckssgow61; x-user-id-pgy.xiaohongshu.com=634cc30badd08a00019ee4e3; web_session=0400698efe0fc8579efe17fe2f3b4b3c80cddc; xsecappid=ratlin; acw_tc=0a42442417637752149322403eb5e96e023a5ddb96ab1976ca79a5079d0dbe; customer-sso-sid=68c517575356887560142862seuvxywtt2viehbo; solar.beaker.session.id=AT-68c51757535689185511014655kw50rxftnhdoh7; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c51757535689185511014655kw50rxftnhdoh7; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c51757535689185511014655kw50rxftnhdoh7; loadts=1763775228746',
     'Accept': 'application/json, text/javascript, */*; q=0.01',
     'Accept-Encoding': 'gzip, deflate, br',
 }
@@ -97,8 +97,8 @@ def get_kols_data():
                     logger.info(f"开始获取MCN {mcn_id} 的数据...")
 
                     # 调用get_mcn_detail获取创作者列表
-                    # kols = get_mcn_detail(mcn_id, header)
-                    kols = get_mcn_detail(mcn_id)
+                    kols = get_mcn_detail(mcn_id, header)
+                    # kols = get_mcn_detail(mcn_id)
 
                     if kols and len(kols) > 0:
                         # 提取并添加到all_creators数组

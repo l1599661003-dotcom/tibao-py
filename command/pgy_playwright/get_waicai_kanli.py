@@ -115,7 +115,7 @@ class WaicaiPGYSpider:
     def get_blogger_list_from_api(self):
         """从API获取博主列表"""
         try:
-            api_url = f"https://tianji.fangpian999.com/api/admin/creatorBusiness/getNewerCreator?type=3&page={self.config['PGY_LOGIN_CONFIG']['page']}&pageSize={self.config['PGY_LOGIN_CONFIG']['pageSize']}"
+            api_url = f"http://localhost:5666/api/admin/creatorBusiness/getNewerCreator?type=3&page={self.config['PGY_LOGIN_CONFIG']['page']}&pageSize={self.config['PGY_LOGIN_CONFIG']['pageSize']}"
             # 生产环境URL：
             # f"https://tianji.fangpian999.com/api/admin/creatorBusiness/getNewerCreator?type=3&page={self.config['PGY_LOGIN_CONFIG']['page']}&pageSize={self.config['PGY_LOGIN_CONFIG']['pageSize']}"
 

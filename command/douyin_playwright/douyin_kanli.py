@@ -622,7 +622,7 @@ class DouYinSpider:
                     {"tb_name": "blogger_fans_profile", "tb_data": []},
                     {"tb_name": "blogger_fans_history", "tb_data": []},
                     {"tb_name": "douyin_kol_profile", "tb_data": [self.other_api_data]},
-                    {"tb_name": "douyin_kol_marketing_stats", "tb_data": [self.yingxiao_api_data]},
+                    {"tb_name": "douyin_kol_marketing_stats", "tb_data": self.yingxiao_api_data},
                 ],
                 "client_id": 1
             }
@@ -1033,15 +1033,6 @@ class DouYinSpider:
                                     'crowd_type': crowd_name,
                                     'percentage': percentage
                                 })
-
-                # 低于占比 type=256 - 添加到八大人群数组末尾
-                elif dist_type == 256:
-                    description = dist.get('description', '')
-                    if description:
-                        crowd_distribution.append({
-                            'crowd_type': 'below_average_description',
-                            'description': description
-                        })
 
             # 将JSON数组转为字符串存储
             if age_distribution:

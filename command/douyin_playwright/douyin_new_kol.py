@@ -1,3 +1,4 @@
+import configparser
 import json
 import os
 import time
@@ -22,7 +23,6 @@ from unitl.common import Common
     获取抖音博主的月总营收
 """
 
-
 # 配置常量
 def get_base_path():
     """获取基础路径，支持exe打包"""
@@ -31,6 +31,48 @@ def get_base_path():
             os.path.abspath(__file__))
     except Exception:
         return os.path.abspath("../..")
+
+def get_resource_path(relative_path):
+    """获取资源文件路径，支持exe打包"""
+    try:
+        # PyInstaller创建临时文件夹并将路径存储在_MEIPASS中
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath("../../WeekAccountUpdate")
+    return os.path.join(base_path, relative_path)
+
+def load_config():
+    """加载配置文件"""
+    config = configparser.ConfigParser()
+
+    # 尝试多个可能的配置文件路径
+    config_paths = [
+        get_resource_path('WeekAccountUpdate/config.ini'),
+        get_resource_path('config.ini'),
+        'WeekAccountUpdate/config.ini',
+        'config.ini'
+    ]
+
+    config_loaded = False
+    for config_path in config_paths:
+        if os.path.exists(config_path):
+            config.read(config_path, encoding='utf-8')
+            config_loaded = True
+            break
+
+    if not config_loaded:
+        logger.error("未找到配置文件")
+        raise FileNotFoundError("配置文件不存在")
+
+    # 解析配置
+    return {
+        'SCHEDULER_CONFIG': {
+            'enable_scheduler': config.getboolean('SCHEDULER', 'enable_scheduler'),
+            'daily_time': config.get('SCHEDULER', 'daily_time'),
+            'run_once': config.getboolean('SCHEDULER', 'run_once'),
+            'check_interval': config.getint('SCHEDULER', 'check_interval')
+        }
+    }
 
 
 class DouYinSpider:
@@ -52,19 +94,15 @@ class DouYinSpider:
         self.processed_api_responses = set()  # 用于追踪已处理的API响应
         self.marketing_info = {}  # 存储营销信息
         self.last_request_time = 0  # 记录上次请求时间
+        self.current_video_type = None  # 当前视频类型：'personal' 或 'xingtu'
 
-        # 新增：存储所有API数据的字典
-        self.kol_api_data = {
-            'author_display': {},
-            'link_struct': {},
-            'platform_info': {},
-            'commerce_info': {},
-            'spread_info': {},
-            'audience_distribution': {},
-            'avg_a3_incr_cnt': {},
-            'marketing_info': {},
-            'author_base_info': {}
-        }
+        # 新增：存储所有API数据的字典 - 空对象
+        self.kol_api_data = {}
+        self.other_api_data = {}
+        self.yingxiao_api_data = []  # 营销传播数据数组
+
+        # 企业微信webhook地址
+        self.webhook_url = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=b3b0cdf5-62b6-49d7-80d7-6f741c3c2c4d"
 
         # 浏览器相关属性初始化
         self.playwright = None
@@ -83,320 +121,615 @@ class DouYinSpider:
                 self.logger.error("未登录状态，无法抓取数据")
                 return 0
 
+            user_id = star_id  # 定义 user_id 供后续使用
             self.current_kol = {'name': kol_name, 'url': kol_url, 'user_id': star_id}
             self.processed_api_responses.clear()
             # 完全重置营销信息，确保数据隔离
             self.marketing_info = {'user_id': star_id}
             # 重置API数据缓存
             self.api_data = {}
+            # 重新初始化KOL数据结构 - 空对象，只填充基本信息
+            self.kol_api_data = {}
+            self.other_api_data = {}
+            self.yingxiao_api_data = []  # 重置营销传播数组
             # 添加API响应处理标志
             self.api_response_processed = False
 
             # 不再在开始时创建记录，统一在最后保存所有数据
+            self.page.goto(kol_url, timeout=30000)
+            self.logger.info(f"成功访问页面: {kol_url}")
 
             try:
-                self.page.goto(kol_url, timeout=30000)
-                self.logger.info(f"成功访问页面: {kol_url}")
+                self.page.wait_for_load_state('networkidle', timeout=5000)
+            except Exception as e:
+                self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-                # 等待页面加载完成
+            self.common.random_sleep(3, 4)
+
+            api_data_copy = dict(self.api_data)
+            for api_url, response_info in api_data_copy.items():
+                if 'data' not in response_info:
+                    continue
+                response_data = response_info['data']  # 提取实际的响应数据
+                if '/api/author/get_author_base_info' in api_url:
+                    self._process_author_base_info(response_data)
+                elif '/api/data_sp/check_author_display' in api_url:
+                    self._process_author_display(response_data)
+                elif '/api/author/get_author_marketing_info' in api_url:
+                    self._process_marketing_info(response_data)
+                elif '/api/author/get_author_platform_channel_info_v2' in api_url:
+                    self._process_author_platform_channel_info_v2(response_data)
+                elif '/api/aggregator/get_author_commerce_spread_info' in api_url:
+                    self._process_author_commerce_info(response_data)
+
+            # ===== 新增：点击商业能力并处理视频类型 =====
+            try:
+                self.logger.info("开始处理商业能力的视频类型...")
+
+                # 点击商业能力标签
+                business_ability_tab = self.page.locator("div.el-tabs__nav >> div:has-text('商业能力')")
+                if business_ability_tab and business_ability_tab.is_visible():
+                    # 点击前等待页面完全响应
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                    except Exception as e:
+                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                    self.api_data = {}
+                    time.sleep(0.5)
+                    business_ability_tab.click()
+                    self.logger.info("成功点击商业能力标签")
+
+                    # 等待页面加载完成并增加延迟
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                    except Exception as e:
+                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                    self.common.random_sleep(3, 4)  # 增加3-4秒延迟，避免操作过快
+
+                    # 检测并处理验证码
+                    if not self.check_and_handle_captcha():
+                        self.logger.error("验证码处理失败")
+                        return 0
+
+                    # 查找两个label标签
+                    try:
+                        # 找到所有el-checkbox-button标签
+                        checkbox_buttons = self.page.locator("label.el-checkbox-button.xt-checkbox-button")
+                        button_count = checkbox_buttons.count()
+
+                        # 找到个人视频和星图视频按钮
+                        personal_video_btn = None
+                        xingtu_video_btn = None
+
+                        for i in range(button_count):
+                            btn = checkbox_buttons.nth(i)
+                            btn_text = btn.inner_text()
+
+                            if '个人视频' in btn_text:
+                                personal_video_btn = btn
+                            elif '星图视频' in btn_text:
+                                xingtu_video_btn = btn
+
+                        # 检查星图视频是否被禁用
+                        xingtu_disabled = False
+                        if xingtu_video_btn:
+                            xingtu_class = xingtu_video_btn.get_attribute('class')
+                            xingtu_disabled = 'is-disabled' in xingtu_class
+
+                        if not xingtu_disabled and xingtu_video_btn:
+                            # 星图视频未禁用，默认选中的是星图视频
+                            self.logger.info("星图视频未禁用，获取星图视频数据 (business=1)...")
+
+                            # 确保星图视频被选中
+                            xingtu_class = xingtu_video_btn.get_attribute('class')
+                            if 'is-checked' not in xingtu_class:
+                                # 点击前等待页面完全响应
+                                try:
+                                    self.page.wait_for_load_state('networkidle', timeout=5000)
+                                except Exception as e:
+                                    self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                                xingtu_video_btn.click()
+                                self.logger.info("点击星图视频按钮")
+
+                                # 等待页面加载完成并增加延迟
+                                try:
+                                    self.page.wait_for_load_state('networkidle', timeout=5000)
+                                except Exception as e:
+                                    self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                                self.common.random_sleep(3, 4)  # 增加3-4秒延迟
+
+                            # 等待并标记为获取星图视频数据
+                            self.current_video_type = 'xingtu'  # 标记当前视频类型
+
+                            # 【关键修复】主动等待星图视频 spread_info API 出现
+                            self.logger.info("等待星图视频API数据加载...")
+                            max_wait_time = 15  # 最多等待15秒
+                            poll_interval = 0.5  # 每0.5秒检查一次
+                            waited_time = 0
+                            api_found = False
+
+                            self.logger.info(f"开始轮询等待星图视频 spread_info API (最多等待{max_wait_time}秒)...")
+
+                            while waited_time < max_wait_time:
+                                # 检查是否已经有星图视频的 spread_info API
+                                xingtu_spread_count = sum(
+                                    1 for url in self.api_data.keys()
+                                    if '/api/data_sp/get_author_spread_info' in url
+                                    and ('type=2' in url or 'only_assign=true' in url)
+                                )
+
+                                if xingtu_spread_count > 0:
+                                    self.logger.info(f"✅ 检测到星图视频 spread_info API！等待时间: {waited_time:.1f}秒")
+                                    api_found = True
+                                    break
+
+                                # 【关键】使用 page.wait_for_timeout 而不是 time.sleep
+                                # 这样可以让 playwright 事件循环处理响应
+                                self.page.wait_for_timeout(int(poll_interval * 1000))
+                                waited_time += poll_interval
+
+                            if not api_found:
+                                self.logger.warning(f"⏰ 等待超时({max_wait_time}秒)，未检测到星图视频 spread_info API")
+
+                            # 处理商业能力页面的所有API数据
+                            self.logger.info("处理商业能力页面的API数据...")
+
+                            # 调试：打印所有捕获到的API
+                            self.logger.info(f"📊 当前 api_data 中有 {len(self.api_data)} 个API")
+                            for api_url in self.api_data.keys():
+                                self.logger.info(f"  - {api_url}")
+
+                            # 1. 处理星图视频的 spread_info (type=2, only_assign=true)
+                            xingtu_spread_apis = []
+                            for api_url, response_info in self.api_data.items():
+                                if 'data' not in response_info:
+                                    continue
+                                # 判断条件改为：包含 type=2 或 only_assign=true
+                                if '/api/data_sp/get_author_spread_info' in api_url and (
+                                        'type=2' in api_url or 'only_assign=true' in api_url):
+                                    xingtu_spread_apis.append((api_url, response_info))
+
+                            self.logger.info(f"找到 {len(xingtu_spread_apis)} 个星图 spread_info API")
+                            if xingtu_spread_apis:
+                                _, last_response_info = xingtu_spread_apis[-1]
+                                response_data = last_response_info['data']
+                                self.logger.info(f"使用最后一个星图 spread_info API")
+                                self._process_author_spread_info(response_data, user_id)
+                            else:
+                                self.logger.warning("⚠️ 没有找到星图 spread_info API (type=2)")
+
+                            # 2. 处理种草价值 (commerce_seed_base_info)
+                            for api_url, response_info in self.api_data.items():
+                                if 'data' not in response_info:
+                                    continue
+                                if '/api/aggregator/get_author_commerce_seed_base_info' in api_url:
+                                    response_data = response_info['data']
+                                    self.logger.info("处理种草价值数据...")
+                                    self._process_author_commerce_seed_base_info(response_data, user_id)
+                                    break
+
+                            # 3. 处理转化价值 (convert_ability)
+                            for api_url, response_info in self.api_data.items():
+                                if 'data' not in response_info:
+                                    continue
+                                if '/api/data_sp/get_author_convert_ability' in api_url:
+                                    response_data = response_info['data']
+                                    self.logger.info("处理转化价值数据...")
+                                    self._process_author_convert_ability(response_data, user_id)
+                                    break
+
+                            # 处理完星图数据后，先检查是否已经有个人视频的API（可能一起加载了）
+                            self.logger.info("检查是否已经捕获到个人视频的 spread_info API...")
+
+                            # 查找个人视频的 spread_info (type=1 或 only_assign=false)
+                            personal_spread_in_current = []
+                            for api_url, response_info in self.api_data.items():
+                                if 'data' not in response_info:
+                                    continue
+                                if '/api/data_sp/get_author_spread_info' in api_url and (
+                                        'type=1' in api_url or 'only_assign=false' in api_url):
+                                    personal_spread_in_current.append((api_url, response_info))
+
+                            if personal_spread_in_current:
+                                # 如果已经有个人视频数据，直接处理，不需要点击
+                                self.logger.info(
+                                    f"✅ 已经捕获到 {len(personal_spread_in_current)} 个个人 spread_info API，无需点击")
+                                self.current_video_type = 'personal'
+                                _, last_response_info = personal_spread_in_current[-1]
+                                response_data = last_response_info['data']
+                                self.logger.info(f"使用已捕获的个人 spread_info API")
+                                self._process_author_spread_info(response_data, user_id)
+                                self.logger.info("✅ 已获取个人视频数据 (type=1)")
+                            elif personal_video_btn:
+                                # 没有个人视频数据，需要点击切换
+                                self.logger.info("未找到个人视频API，准备点击个人视频按钮")
+
+                                # 【重要】先设置视频类型，再清空，再点击
+                                # 这样 handler 可以正确识别新的API
+                                self.current_video_type = 'personal'
+                                self.logger.info("已设置 current_video_type = 'personal'")
+
+                                # 清空后再点击个人视频
+                                self.api_data = {}
+                                self.logger.info("已清空 api_data")
+
+                                # 点击前等待页面完全响应
+                                try:
+                                    self.page.wait_for_load_state('networkidle', timeout=5000)
+                                except Exception as e:
+                                    self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                                self.logger.info("点击个人视频按钮...")
+                                personal_video_btn.click()
+
+                                # 等待页面加载完成并增加延迟
+                                try:
+                                    self.page.wait_for_load_state('networkidle', timeout=5000)
+                                    self.logger.info("页面网络空闲")
+                                except Exception as e:
+                                    self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                                self.common.random_sleep(3, 4)  # 增加3-4秒延迟
+
+                                self.logger.info("等待个人视频API数据加载...")
+
+                                # 【关键修复】主动等待 spread_info API 出现，而不是盲目等待固定时间
+                                max_wait_time = 15  # 最多等待15秒
+                                poll_interval = 0.5  # 每0.5秒检查一次
+                                waited_time = 0
+                                api_found = False
+
+                                while waited_time < max_wait_time:
+                                    # 检查是否已经有个人视频的 spread_info API
+                                    personal_spread_count = sum(
+                                        1 for url in self.api_data.keys()
+                                        if '/api/data_sp/get_author_spread_info' in url
+                                        and ('type=1' in url or 'only_assign=false' in url)
+                                    )
+
+                                    if personal_spread_count > 0:
+                                        api_found = True
+                                        break
+
+                                    # 【关键】使用 page.wait_for_timeout 而不是 time.sleep
+                                    # 这样可以让 playwright 事件循环处理响应
+                                    self.page.wait_for_timeout(int(poll_interval * 1000))
+                                    waited_time += poll_interval
+
+                                if not api_found:
+                                    self.logger.warning(
+                                        f"⏰ 等待超时({max_wait_time}秒)，未检测到个人视频 spread_info API")
+
+                                # 调试：打印所有捕获到的API
+                                for api_url in self.api_data.keys():
+                                    self.logger.info(f"  - {api_url}")
+
+                                # 处理个人视频的 spread_info (type=1, only_assign=false)
+                                personal_spread_apis = []
+                                for api_url, response_info in self.api_data.items():
+                                    if 'data' not in response_info:
+                                        continue
+                                    # 判断条件改为：包含 type=1 或 only_assign=false
+                                    if '/api/data_sp/get_author_spread_info' in api_url and (
+                                            'type=1' in api_url or 'only_assign=false' in api_url):
+                                        personal_spread_apis.append((api_url, response_info))
+
+                                self.logger.info(f"找到 {len(personal_spread_apis)} 个个人 spread_info API")
+                                if personal_spread_apis:
+                                    _, last_response_info = personal_spread_apis[-1]
+                                    response_data = last_response_info['data']
+                                    self.logger.info(f"使用最后一个个人 spread_info API")
+                                    self._process_author_spread_info(response_data, user_id)
+                                else:
+                                    self.logger.warning("⚠️ 没有找到个人 spread_info API (type=1)")
+
+                                self.logger.info("✅ 已获取个人视频数据 (type=1)")
+                        else:
+                            # 星图视频被禁用，默认是个人视频
+                            self.logger.info("星图视频已禁用，只获取个人视频数据 (type=1)...")
+
+                            # 确保个人视频被选中
+                            if personal_video_btn:
+                                personal_class = personal_video_btn.get_attribute('class')
+                                if 'is-checked' not in personal_class:
+                                    # 点击前等待页面完全响应
+                                    try:
+                                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                                    except Exception as e:
+                                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                                    personal_video_btn.click()
+                                    self.logger.info("点击个人视频按钮")
+
+                                    # 等待页面加载完成并增加延迟
+                                    try:
+                                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                                    except Exception as e:
+                                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                                    self.common.random_sleep(3, 4)  # 增加3-4秒延迟
+
+                            # 标记为获取个人视频数据
+                            self.current_video_type = 'personal'
+
+                            # 【关键修复】主动等待个人视频 spread_info API 出现
+                            self.logger.info("等待个人视频API数据加载...")
+                            max_wait_time = 15  # 最多等待15秒
+                            poll_interval = 0.5  # 每0.5秒检查一次
+                            waited_time = 0
+                            api_found = False
+
+                            self.logger.info(f"开始轮询等待个人视频 spread_info API (最多等待{max_wait_time}秒)...")
+
+                            while waited_time < max_wait_time:
+                                # 检查是否已经有个人视频的 spread_info API
+                                personal_spread_count = sum(
+                                    1 for url in self.api_data.keys()
+                                    if '/api/data_sp/get_author_spread_info' in url
+                                    and ('type=1' in url or 'only_assign=false' in url)
+                                )
+
+                                if personal_spread_count > 0:
+                                    self.logger.info(f"✅ 检测到个人视频 spread_info API！等待时间: {waited_time:.1f}秒")
+                                    api_found = True
+                                    break
+
+                                # 【关键】使用 page.wait_for_timeout 而不是 time.sleep
+                                # 这样可以让 playwright 事件循环处理响应
+                                self.page.wait_for_timeout(int(poll_interval * 1000))
+                                waited_time += poll_interval
+
+                            if not api_found:
+                                self.logger.warning(f"⏰ 等待超时({max_wait_time}秒)，未检测到个人视频 spread_info API")
+
+                            # 处理个人视频的 spread_info (type=1 或 only_assign=false)
+                            personal_spread_apis = []
+                            for api_url, response_info in self.api_data.items():
+                                if 'data' not in response_info:
+                                    continue
+                                if '/api/data_sp/get_author_spread_info' in api_url and (
+                                        'type=1' in api_url or 'only_assign=false' in api_url):
+                                    personal_spread_apis.append((api_url, response_info))
+
+                            if personal_spread_apis:
+                                # 使用最后一个 API 响应（第一个可能没有数据）
+                                _, last_response_info = personal_spread_apis[-1]
+                                response_data = last_response_info['data']
+                                self.logger.info(
+                                    f"找到 {len(personal_spread_apis)} 个个人 spread_info API，使用最后一个")
+                                self._process_author_spread_info(response_data, user_id)
+
+                    except Exception as btn_error:
+                        self.logger.warning(f"处理视频类型按钮时出错: {str(btn_error)}")
+
+                else:
+                    # 未找到商业能力标签，使用首页默认数据
+                    self.logger.info("未找到商业能力标签，使用首页默认的传播信息数据")
+
+                    # 首页默认是个人视频数据
+                    self.current_video_type = 'personal'
+
+                    # 处理首页的 spread_info - 选择最后一个（第一个可能没有数据）
+                    homepage_spread_apis = []
+                    for api_url, response_info in api_data_copy.items():
+                        if 'data' not in response_info:
+                            continue
+                        if '/api/data_sp/get_author_spread_info' in api_url:
+                            homepage_spread_apis.append((api_url, response_info))
+
+                    if homepage_spread_apis:
+                        # 使用最后一个 API 响应（首页加载时第一个可能没有数据）
+                        _, last_response_info = homepage_spread_apis[-1]
+                        response_data = last_response_info['data']
+                        self.logger.info(f"首页找到 {len(homepage_spread_apis)} 个 spread_info API，使用最后一个")
+                        self._process_author_spread_info(response_data, user_id)
+
+            except Exception as ability_error:
+                self.logger.warning(f"处理商业能力时出错: {str(ability_error)}")
+
+            # ===== 商业能力处理结束 =====
+
+            # 点击连接用户标签
+            creative_tab = self.page.locator("div.el-tabs__nav >> div:has-text('连接用户')")
+            if creative_tab and creative_tab.is_visible():
+                # 点击前等待页面完全响应
                 try:
                     self.page.wait_for_load_state('networkidle', timeout=5000)
                 except Exception as e:
                     self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-            except Exception as e:
-                self.logger.error(f"访问页面超时: {kol_url}")
-                return 0
-
-            self.common.random_sleep(3, 4)
-            # 点击连接用户标签
-            creative_tab = self.page.locator("div.el-tabs__nav >> div:has-text('连接用户')")
-            if creative_tab and creative_tab.is_visible():
-                # 点击前等待一下确保元素稳定
                 time.sleep(0.5)
                 creative_tab.click()
                 self.logger.info("成功点击连接用户标签")
 
-                # 等待点击生效
+                # 等待页面加载完成并增加延迟
                 try:
-                    # 等待页面有变化（比如URL变化或者元素状态变化）
-                    self.page.wait_for_timeout(1000)  # 等待1秒
-
-                    # 检查是否点击成功（可以检查URL变化或者特定元素出现）
-                    current_url = self.page.url
-                    if 'creative' in current_url.lower() or '连接' in current_url.lower():
-                        self.logger.info("检测到页面已切换到连接用户页面")
-                    else:
-                        self.logger.info("页面切换状态未知，继续执行")
-
-                    # 等待页面加载完成
-                    time.sleep(2)
-
+                    self.page.wait_for_load_state('networkidle', timeout=5000)
                 except Exception as e:
-                    self.logger.warning(f"检查点击效果时出错: {str(e)}")
-                    # 即使检查失败也继续执行
-            else:
-                self.logger.warning(f"未找到连接用户标签，KOL {kol_name} 可能没有连接用户数据，但继续尝试获取其他数据")
-                # 不直接返回，继续尝试获取其他可用的API数据
+                    self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-            # 等待页面有变化（比如URL变化或者元素状态变化）
-            self.page.wait_for_timeout(1000)  # 等待1秒
+                self.common.random_sleep(3, 4)  # 增加3-4秒延迟，避免操作过快
 
-            # 鼠标滚轮向下滚动几下，确保页面完全加载
-            self.logger.info("向下滚动页面确保内容完全加载...")
-            try:
-                # 向下滚动3次，每次滚动500像素
-                for i in range(3):
-                    self.page.mouse.wheel(0, 500)
-                    time.sleep(0.5)  # 每次滚动后等待0.5秒
-                self.logger.info("页面滚动完成")
-            except Exception as e:
-                self.logger.warning(f"页面滚动时出错: {str(e)}")
+                # 检测并处理验证码
+                if not self.check_and_handle_captcha():
+                    self.logger.error("验证码处理失败")
+                    return 0
 
-            # 尝试点击粉丝画像按钮
-            self.logger.info("开始点击粉丝画像按钮...")
+                # 【关键】主动等待连接用户API出现
+                self.logger.info("等待连接用户API数据加载...")
+                max_wait_time = 15  # 最多等待15秒
+                poll_interval = 0.5  # 每0.5秒检查一次
+                waited_time = 0
+                api_found = False
 
-            # 等待页面完全加载，确保所有元素都已渲染
-            self.logger.info("等待页面元素完全加载...")
-            try:
-                self.page.wait_for_load_state('networkidle', timeout=5000)
-            except Exception as e:
-                self.logger.warning(f"等待页面网络空闲时出错: {str(e)}")
+                self.logger.info(f"开始轮询等待 author_link_card API (最多等待{max_wait_time}秒)...")
 
-            # 额外等待一段时间确保动态内容加载完成
-            time.sleep(2)
+                while waited_time < max_wait_time:
+                    # 检查是否已经有连接用户的 API
+                    link_card_api_count = sum(
+                        1 for url in self.api_data.keys()
+                        if '/api/data_sp/author_link_card' in url
+                    )
 
-            # 尝试多种选择器来查找粉丝画像按钮
-            fan_portrait_selectors = [
-                "text=粉丝画像",
-                "span:has-text('粉丝画像')",
-                "label:has-text('粉丝画像')",
-                "div:has-text('粉丝画像')",
-                "button:has-text('粉丝画像')",
-                ".el-checkbox-button__inner:has-text('粉丝画像')",
-                "[class*='checkbox']:has-text('粉丝画像')",
-                "[class*='button']:has-text('粉丝画像')"
-            ]
+                    if link_card_api_count > 0:
+                        self.logger.info(f"✅ 检测到 author_link_card API！等待时间: {waited_time:.1f}秒")
+                        api_found = True
+                        break
 
-            fan_portrait_button = None
-            for i, selector in enumerate(fan_portrait_selectors):
+                    # 【关键】使用 page.wait_for_timeout 而不是 time.sleep
+                    # 这样可以让 playwright 事件循环处理响应
+                    self.page.wait_for_timeout(int(poll_interval * 1000))
+                    waited_time += poll_interval
+
+                if not api_found:
+                    self.logger.warning(f"⏰ 等待超时({max_wait_time}秒)，未检测到 author_link_card API")
+
+                self.logger.info("处理连接用户页面的API数据...")
+
+                # 1. 处理连接用户分布 (link_card)
+                for api_url, response_info in self.api_data.items():
+                    if 'data' not in response_info:
+                        continue
+                    if '/api/data_sp/author_link_card' in api_url:
+                        response_data = response_info['data']
+                        self.logger.info("处理连接用户分布数据...")
+                        self._process_author_link_card(response_data, user_id)
+                        break
+
+                # 鼠标滚轮向下滚动几下，确保页面完全加载
+                self.logger.info("向下滚动页面确保内容完全加载...")
                 try:
-                    self.logger.info(f"尝试选择器 {i + 1}/{len(fan_portrait_selectors)}: {selector}")
+                    # 向下滚动3次，每次滚动500像素
+                    for i in range(3):
+                        self.page.mouse.wheel(0, 500)
+                        time.sleep(0.5)  # 每次滚动后等待0.5秒
+                    self.logger.info("页面滚动完成")
+                except Exception as e:
+                    self.logger.warning(f"页面滚动时出错: {str(e)}")
 
-                    # 检查元素是否存在
-                    element = self.page.locator(selector).first
-                    count = element.count()
-                    self.logger.info(f"选择器 '{selector}' 找到 {count} 个元素")
+                # 尝试点击粉丝画像按钮
+                self.logger.info("开始点击粉丝画像按钮...")
 
-                    if count > 0:
-                        # 检查元素是否可见
-                        if element.is_visible(timeout=3000):
-                            fan_portrait_button = element
-                            self.logger.info(f"✅ 找到粉丝画像按钮，使用选择器: {selector}")
+                # 等待页面完全加载，确保所有元素都已渲染
+                self.logger.info("等待页面元素完全加载...")
+                try:
+                    self.page.wait_for_load_state('networkidle', timeout=5000)
+                except Exception as e:
+                    self.logger.warning(f"等待页面网络空闲时出错: {str(e)}")
+
+                self.common.random_sleep(3, 4)  # 增加3-4秒延迟，确保页面完全加载
+
+                fan_portrait_button = self.page.locator("text=粉丝画像")
+                if fan_portrait_button and fan_portrait_button.is_visible():
+                    # 【重要】点击前清空 api_data，确保只捕获粉丝画像相关的API
+                    self.api_data = {}
+                    self.logger.info("已清空 api_data，准备点击粉丝画像按钮")
+
+                    # 点击前等待页面完全响应
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                    except Exception as e:
+                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                    time.sleep(0.5)
+                    fan_portrait_button.click()
+                    self.logger.info("成功点击粉丝画像按钮")
+
+                    # 等待页面加载完成并增加延迟
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                    except Exception as e:
+                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                    self.common.random_sleep(3, 4)  # 增加3-4秒延迟，避免操作过快
+
+                    # 检测并处理验证码
+                    if not self.check_and_handle_captcha():
+                        self.logger.error("验证码处理失败")
+                        return 0
+
+                    # 【关键】主动等待粉丝分布API出现
+                    max_wait_time = 15  # 最多等待15秒
+                    poll_interval = 0.5  # 每0.5秒检查一次
+                    waited_time = 0
+                    api_found = False
+
+                    self.logger.info(f"开始轮询等待粉丝分布 API (最多等待{max_wait_time}秒)...")
+
+                    while waited_time < max_wait_time:
+                        # 检查是否已经有粉丝分布的 API
+                        fans_api_count = sum(
+                            1 for url in self.api_data.keys()
+                            if '/api/data_sp/get_author_fans_distribution' in url
+                        )
+
+                        if fans_api_count > 0:
+                            self.logger.info(f"✅ 检测到粉丝分布 API！等待时间: {waited_time:.1f}秒")
+                            api_found = True
                             break
-                        else:
-                            self.logger.info(f"元素存在但不可见，选择器: {selector}")
-                    else:
-                        self.logger.info(f"未找到元素，选择器: {selector}")
 
-                except Exception as e:
-                    self.logger.info(f"选择器 {selector} 检查出错: {str(e)}")
-                    continue
+                        # 【关键】使用 page.wait_for_timeout 而不是 time.sleep
+                        # 这样可以让 playwright 事件循环处理响应
+                        self.page.wait_for_timeout(int(poll_interval * 1000))
+                        waited_time += poll_interval
 
-            # 如果还是没找到，尝试更通用的方法
-            if not fan_portrait_button:
-                self.logger.info("尝试更通用的查找方法...")
-                try:
-                    # 查找所有包含"粉丝画像"文本的元素
-                    all_elements = self.page.locator("text=粉丝画像").all()
-                    self.logger.info(f"找到 {len(all_elements)} 个包含'粉丝画像'文本的元素")
+                    if not api_found:
+                        self.logger.warning(f"⏰ 等待超时({max_wait_time}秒)，未检测到粉丝分布 API")
 
-                    for i, element in enumerate(all_elements):
-                        try:
-                            if element.is_visible(timeout=1000):
-                                fan_portrait_button = element
-                                self.logger.info(f"✅ 通过通用方法找到粉丝画像按钮，元素 {i + 1}")
-                                break
-                        except Exception as e:
-                            self.logger.info(f"元素 {i + 1} 不可见: {str(e)}")
+                    # 调试：打印所有捕获到的API
+                    self.logger.info(f"📊 点击粉丝画像后，api_data 中有 {len(self.api_data)} 个API")
+                    for api_url in self.api_data.keys():
+                        self.logger.info(f"  - {api_url}")
+
+                    # 2. 处理粉丝数据 (fans_distribution)
+                    self.logger.info(f"开始查找粉丝分布API，当前api_data有 {len(self.api_data)} 个API")
+                    fans_api_found = False
+                    for api_url, response_info in self.api_data.items():
+                        if 'data' not in response_info:
                             continue
+                        if '/api/data_sp/get_author_fans_distribution' in api_url:
+                            fans_api_found = True
+                            response_data = response_info['data']
+                            self.logger.info(f"✅ 找到粉丝分布API: {api_url}")
+                            self.logger.info("处理粉丝数据分布...")
+                            self._process_author_fans_distribution(response_data, user_id)
+                            break
 
-                except Exception as e:
-                    self.logger.warning(f"通用查找方法出错: {str(e)}")
-
-            if fan_portrait_button:
-                # 点击前等待一下确保元素稳定
-                time.sleep(0.5)
-                fan_portrait_button.click()
-                self.logger.info("成功点击粉丝画像按钮")
-
-                # 等待点击生效和API请求完成
-                try:
-                    # 等待页面有变化
-                    self.page.wait_for_timeout(1000)  # 等待1秒
-
-                    # 等待API请求完成 - 增加等待时间
-                    self.logger.info("等待粉丝画像API请求完成...")
-
-                except Exception as e:
-                    self.logger.warning(f"检查粉丝画像点击效果时出错: {str(e)}")
-                    # 即使检查失败也继续执行
-            else:
-                self.logger.warning(f"未找到粉丝画像按钮，KOL {kol_name} 可能没有粉丝画像数据，但继续尝试获取其他数据")
-
-                # 保存页面截图用于调试
-                try:
-                    screenshot_path = os.path.join(self.data_dir,
-                                                   f"fan_portrait_not_found_{kol_name}_{int(time.time())}.png")
-                    self.page.screenshot(path=screenshot_path)
-                    self.logger.info(f"已保存页面截图用于调试: {screenshot_path}")
-                except Exception as e:
-                    self.logger.warning(f"保存页面截图失败: {str(e)}")
-
-                # 即使没有粉丝画像按钮，也继续处理其他API数据
-
-            # 等待API数据 - 简化检测方式
-            try:
-                # 等待更长时间让API响应处理完成，即使没有点击按钮也可能有基础数据
-                wait_time = random.randint(5, 8)
-                self.logger.info(f"等待 {wait_time} 秒让API响应处理完成...")
-                time.sleep(wait_time)
-
-                # 检查是否已经获取到API响应数据
-                if self.api_response_processed:
-                    self.logger.info("✅ 成功获取到API响应数据")
+                    if not fans_api_found:
+                        self.logger.warning("⚠️ 未找到粉丝分布API数据")
                 else:
-                    # 即使没有API响应，也尝试保存基础信息
-                    self.logger.info("ℹ️ 未检测到API响应，但仍会保存基础KOL信息")
+                    self.logger.warning("未找到粉丝画像按钮，跳过粉丝数据获取")
 
-                # 统一保存所有收集到的API数据到远程接口
-                if self.current_kol and self.current_kol.get('user_id'):
-                    self.logger.info("开始统一保存所有API数据到远程接口")
-                    self._save_all_kol_data_to_api(self.current_kol.get('user_id'))
-                    self.logger.info("✅ 所有API数据已统一保存到远程接口")
+            # 统一保存所有收集到的API数据到远程接口
+            if self.current_kol and self.current_kol.get('user_id'):
+                self.logger.info("开始统一保存所有API数据到远程接口")
+                self._save_kol_status_to_api(self.current_kol.get('user_id'))
+                time.sleep(2)
+                self._save_all_kol_data_to_api(self.current_kol.get('user_id'))
+                self.logger.info("✅ 所有API数据已统一保存到远程接口")
 
-                return 1  # 返回1表示处理成功
-
-            except Exception as e:
-                self.logger.warning(f"等待API数据时出错: {str(e)}")
-                return 1  # 即使出错也继续执行
+            return 1  # 返回1表示处理成功
 
         except Exception as e:
             self.logger.error(f"抓取KOL {kol_name} 笔记时出错: {str(e)}")
             raise
 
-    def _save_all_kol_data_to_api(self, user_id: str):
+    def _save_kol_status_to_api(self, user_id: str):
         """统一保存所有收集到的API数据到远程接口"""
         try:
             self.logger.info(f"开始统一保存所有API数据到远程接口，用户ID: {user_id}")
-            self.logger.info(f"当前kol_api_data内容: {self.kol_api_data}")
-
-            # 构建请求数据
-            current_timestamp = int(time.time())
-            douyin_data = {
-                "douyin_user_id": user_id,
-                "douyin_nickname": self.current_kol.get('name', '') if self.current_kol else '',
-                "douyin_link": f"https://www.xingtu.cn/ad/creator/author-homepage/douyin-video/{user_id}",
-                "create_time": current_timestamp,
-                "update_time": current_timestamp
-            }
-
-            # 作者显示数据
-            if self.kol_api_data.get('author_display'):
-                douyin_data.update({
-                    "follower_count": self.kol_api_data['author_display'].get('follower_count'),
-                    "link_count": self.kol_api_data['author_display'].get('link_count'),
-                    "videos_count": self.kol_api_data['author_display'].get('videos_count')
-                })
-
-            # 链接结构数据
-            if self.kol_api_data.get('link_struct'):
-                try:
-                    link_struct_data = json.loads(self.kol_api_data['link_struct'].get('link_struct', '{}'))
-                    douyin_data['link_struct'] = link_struct_data
-                except (json.JSONDecodeError, TypeError):
-                    douyin_data['link_struct'] = {}
-
-            # 平台信息数据
-            if self.kol_api_data.get('platform_info'):
-                douyin_data['self_intro'] = self.kol_api_data['platform_info'].get('self_intro', '')
-
-            # 商业信息数据
-            if self.kol_api_data.get('commerce_info'):
-                try:
-                    commerce_info_data = json.loads(self.kol_api_data['commerce_info'].get('commerce_info', '{}'))
-                    douyin_data['commerce_info'] = commerce_info_data
-                except (json.JSONDecodeError, TypeError):
-                    douyin_data['commerce_info'] = {}
-
-            # 传播信息数据
-            if self.kol_api_data.get('spread_info'):
-                self.logger.info(f"添加spread_info字段")
-                try:
-                    spread_info_data = json.loads(self.kol_api_data['spread_info'].get('spread_info', '{}'))
-                    douyin_data['spread_info'] = spread_info_data
-                except (json.JSONDecodeError, TypeError):
-                    douyin_data['spread_info'] = {}
-
-            # 受众分布数据
-            if self.kol_api_data.get('audience_distribution'):
-                self.logger.info(f"添加audience_distribution字段")
-                try:
-                    audience_distribution_data = json.loads(
-                        self.kol_api_data['audience_distribution'].get('audience_distribution', '[]'))
-                    douyin_data['audience_distribution'] = audience_distribution_data
-                except (json.JSONDecodeError, TypeError):
-                    douyin_data['audience_distribution'] = []
-
-            # 商业种子基础信息数据
-            if self.kol_api_data.get('avg_a3_incr_cnt'):
-                self.logger.info(f"添加avg_a3_incr_cnt字段")
-                avg_a3_incr_cnt_value = self.kol_api_data.get('avg_a3_incr_cnt', '')
-                douyin_data['avg_a3_incr_cnt'] = str(avg_a3_incr_cnt_value)
-                self.logger.info(f"avg_a3_incr_cnt值: {avg_a3_incr_cnt_value}")
-            else:
-                self.logger.warning(f"未找到avg_a3_incr_cnt数据，使用默认值")
-                self.logger.info(f"当前kol_api_data中avg_a3_incr_cnt: {self.kol_api_data.get('avg_a3_incr_cnt')}")
-                # 即使没有数据也发送默认值，避免服务器报错
-                douyin_data['avg_a3_incr_cnt'] = ''
-
-            # 营销信息数据
-            if self.kol_api_data.get('marketing_info'):
-                self.logger.info(f"添加营销信息字段")
-                try:
-                    industry_tags_data = json.loads(self.kol_api_data['marketing_info'].get('industry_tags', '[]'))
-                    douyin_data['industry_tags'] = industry_tags_data
-                except (json.JSONDecodeError, TypeError):
-                    douyin_data['industry_tags'] = []
-
-                try:
-                    price_info_data = json.loads(self.kol_api_data['marketing_info'].get('price_info', '{}'))
-                    douyin_data['price_info'] = price_info_data
-                except (json.JSONDecodeError, TypeError):
-                    douyin_data['price_info'] = {}
-
-            # 作者基本信息数据
-            if self.kol_api_data.get('author_base_info'):
-                self.logger.info(f"添加作者基本信息字段")
-                try:
-                    author_base_info_data = json.loads(
-                        self.kol_api_data['author_base_info'].get('author_base_info', '{}'))
-                    douyin_data['author_base_info'] = author_base_info_data
-                except (json.JSONDecodeError, TypeError):
-                    douyin_data['author_base_info'] = {}
-
-                # 更新douyin_link如果从author_base_info中有更准确的信息
-                if self.kol_api_data['author_base_info'].get('douyin_link'):
-                    douyin_data['douyin_link'] = self.kol_api_data['author_base_info'].get('douyin_link')
 
             # 构建最终的请求体
             request_data = {
-                "douyin_data": douyin_data
+                "douyin_user_id": user_id
             }
 
             self.logger.info(f"准备发送数据到API接口: {request_data}")
 
-            # 发送POST请求到API接口
             # 正确的URL应该是
             api_url = "https://tianji.fangpian999.com/api/admin/creatorSign/recordDouyinKolData"
             headers = {
@@ -418,243 +751,261 @@ class DouYinSpider:
             self.logger.error(f"错误详情: {traceback.format_exc()}")
             raise
 
+    def _save_all_kol_data_to_api(self, user_id: str):
+        """统一保存所有收集到的API数据到远程接口"""
+        try:
+            self.logger.info(f"开始统一保存所有API数据到远程接口，用户ID: {user_id}")
+            print("=" * 60)
+            print("kol_api_data:")
+            print(self.kol_api_data)
+            print("=" * 60)
+            print("other_api_data:")
+            print(self.other_api_data)
+            print("=" * 60)
+            print("yingxiao_api_data:")
+            print(self.yingxiao_api_data)
+            print("=" * 60)
+
+            # 构建payload，参考get_pgy_intro.py的格式
+            payload = {
+                "apis": [
+                    {"tb_name": "blogger_info", "tb_data": [self.kol_api_data]},
+                    {"tb_name": "blogger_note_rate", "tb_data": []},
+                    {"tb_name": "blogger_data_summary", "tb_data": []},
+                    {"tb_name": "blogger_note_detail", "tb_data": []},
+                    {"tb_name": "blogger_fans_summary", "tb_data": []},
+                    {"tb_name": "blogger_fans_profile", "tb_data": []},
+                    {"tb_name": "blogger_fans_history", "tb_data": []},
+                    {"tb_name": "douyin_kol_profile", "tb_data": [self.other_api_data]},
+                    {"tb_name": "douyin_kol_marketing_stats", "tb_data": self.yingxiao_api_data},
+                ],
+                "client_id": 1
+            }
+
+            self.logger.info(f"准备发送数据到API接口")
+
+            # 发送POST请求到API接口
+            api_url = "http://47.104.76.46:19000/api/v1/sync/spider/data"
+            headers = {
+                "Content-Type": "application/json"
+            }
+
+            response = requests.post(api_url, json=payload, headers=headers, timeout=30, verify=False)
+
+            if response.status_code == 200:
+                try:
+                    response_data = response.json()
+                    if response_data.get('code') == 200:
+                        self.logger.info(f"✅ 数据成功发送到API接口，响应: {response_data}")
+                    else:
+                        self.logger.error(f"❌ API接口请求失败，API返回错误: {response_data}")
+                        raise Exception(f"API接口请求失败: {response_data}")
+                except ValueError:
+                    self.logger.error(f"API返回非JSON响应: {response.text[:200]}")
+                    raise Exception(f"API返回非JSON响应")
+            else:
+                self.logger.error(f"❌ API接口请求失败，状态码: {response.status_code}")
+                self.logger.error(f"响应内容: {response.text}")
+                raise Exception(f"API接口请求失败，状态码: {response.status_code}")
+
+        except Exception as api_error:
+            self.logger.error(f"统一保存API数据到远程接口时出错: {str(api_error)}")
+            self.logger.error(f"错误详情: {traceback.format_exc()}")
+            raise
+
     def _process_marketing_info(self, response_data: Dict[str, Any]):
-        """处理营销信息数据"""
+        """处理营销信息数据 - 根据新表结构调整字段名"""
         try:
             if not response_data:
                 self.logger.error("营销信息API响应数据为空")
                 return
 
-            # 获取当前正在处理的KOL名称
-            current_user_id = self.current_kol.get('user_id') if self.current_kol else None
-            if not current_user_id:
-                self.logger.error("无法获取当前KOL名称")
-                return
-
-            # 验证数据是否属于当前用户
-            if self.marketing_info.get('user_id') != current_user_id:
-                self.logger.warning(f"数据不匹配：期望 {current_user_id}，实际 {self.marketing_info.get('user_id')}")
-                return
-
-            # 提取价格信息
-            price_info = response_data.get('price_info', [])
-
-            # 将JSON对象转换为字符串
-            try:
-                industry_tags_json = json.dumps(response_data.get('industry_tags', []), ensure_ascii=False)
-                price_info_json = json.dumps(price_info, ensure_ascii=False)
-            except Exception as json_error:
-                self.logger.error(f"将营销信息转换为JSON时出错: {str(json_error)}")
-                self.logger.error(f"错误详情: {traceback.format_exc()}")
-                return
-
-            # 存储到kol_api_data中，等待统一保存
-            self.kol_api_data['marketing_info'] = {
-                'industry_tags': industry_tags_json,
-                'price_info': price_info_json
-            }
+            # 报价信息
+            if 'price_info' in response_data:
+                price_list = response_data['price_info']
+                for price in price_list:
+                    video_type = price.get('video_type')
+                    price_value = price.get('price', 0)
+                    if video_type == 1:
+                        self.other_api_data['price_1_20s'] = price_value  # 1-20秒报价
+                    elif video_type == 2:
+                        self.other_api_data['price_20_60s'] = price_value  # 20-60秒报价
+                        self.kol_api_data['picturePrice'] = price_value
+                        self.kol_api_data['videoPrice'] = price_value
+                    elif video_type == 71:
+                        self.other_api_data['price_60s_plus'] = price_value  # 60秒以上报价
+                    elif video_type == 150:
+                        self.other_api_data['price_platform_raw'] = price_value  # 短直种草平台裸价
 
         except Exception as e:
             self.logger.error(f"处理营销信息时出错: {str(e)}")
             self.logger.error(f"错误详情: {traceback.format_exc()}")
 
     def _process_author_base_info(self, response_data: Dict[str, Any]):
-        """处理作者基本信息数据"""
+        """处理作者基本信息数据 - 参考get_douyin_guakao.py第226-247行"""
         try:
             if not response_data:
                 self.logger.error("作者基本信息API响应数据为空")
                 return
 
-            # 获取当前正在处理的KOL名称
-            current_user_id = self.current_kol.get('user_id') if self.current_kol else None
-            if not current_user_id:
-                self.logger.error("无法获取当前KOL名称")
-                return
+            # 性别转换
+            gender = response_data.get('gender', '')
+            if gender == 1:
+                gender = 2
+            elif gender == 2:
+                gender = 1
+            # 1. 基本信息
+            self.kol_api_data['name'] = response_data.get('nick_name', '')
+            self.kol_api_data['platform_user_id'] = response_data.get('id')
+            self.kol_api_data['location'] = response_data.get('city')
+            self.kol_api_data['redId'] = response_data.get('short_id')
+            self.kol_api_data['headPhoto'] = response_data.get('avatar_uri')
+            self.kol_api_data['gender'] = gender
+            tags_relation = response_data.get('tags_relation', {})
+            if tags_relation:
+                content_field = []
+                for k, v in tags_relation.items():
+                    content_field.append({
+                        "taxonomy1Tag": k,  # 一级标签
+                        "taxonomy2Tags": v or []  # 二级标签数组
+                    })
+                self.kol_api_data['contentTags'] = content_field
+            else:
+                self.kol_api_data['contentTags'] = []
 
-            # 验证数据是否属于当前用户
-            if self.marketing_info.get('user_id') != current_user_id:
-                self.logger.warning(f"数据不匹配：期望 {current_user_id}，实际 {self.marketing_info.get('user_id')}")
-                return
-
-            # 提取链接信息
-            douyin_link = f"https://www.xingtu.cn/ad/creator/author-homepage/douyin-video/{current_user_id}"
-
-            # 将整个响应数据转换为JSON字符串
-            try:
-                author_base_info_json = json.dumps(response_data, ensure_ascii=False)
-            except Exception as json_error:
-                self.logger.error(f"将作者基本信息转换为JSON时出错: {str(json_error)}")
-                self.logger.error(f"错误详情: {traceback.format_exc()}")
-                return
-
-            # 存储到kol_api_data中，等待统一保存
-            self.kol_api_data['author_base_info'] = {
-                'author_base_info': author_base_info_json,
-                'douyin_link': douyin_link
-            }
+            self.other_api_data['douyin_sec_uid'] = response_data.get('sec_uid', '')
+            self.other_api_data['platform_user_id'] = response_data.get('id')
 
         except Exception as e:
             self.logger.error(f"处理作者基本信息时出错: {str(e)}")
             self.logger.error(f"错误详情: {traceback.format_exc()}")
 
-    def _process_author_display(self, response_data: Dict[str, Any], user_id: str):
-        """处理作者显示检查API数据，只保存follower字段、link_cnt字段和release_videos_cnt字段"""
+    def _process_author_display(self, response_data: Dict[str, Any]):
+        """处理作者显示检查API数据 - 参考get_douyin_guakao.py第249-253行"""
         try:
             if not response_data:
                 self.logger.error("作者显示检查API响应数据为空")
                 return
 
-            # 提取需要的字段
-            follower = response_data.get('follower', 0)
-            link_cnt = response_data.get('link_cnt', 0)
-            release_videos_cnt = response_data.get('release_videos_cnt', 0)
-
-            # 存储到kol_api_data中，等待统一保存
-            self.kol_api_data['author_display'] = {
-                'follower_count': follower,
-                'link_count': link_cnt,
-                'videos_count': release_videos_cnt
-            }
+            # 2. 粉丝数赞藏
+            self.kol_api_data['fansNum'] = response_data.get('follower', 0)
+            self.kol_api_data['likeCollectCountInfo'] = response_data.get('link_cnt', 0)
 
         except Exception as e:
             self.logger.error(f"处理作者显示数据时出错: {str(e)}")
             self.logger.error(f"错误详情: {traceback.format_exc()}")
 
-    def _process_author_link_struct(self, response_data: Dict[str, Any], user_id: str):
+    def _process_author_platform_channel_info_v2(self, response_data: Dict[str, Any]):
         """处理作者链接结构API数据，保存link_struct对象为JSON格式"""
         try:
             if not response_data:
                 self.logger.error("作者链接结构API响应数据为空")
                 return
 
-            # 提取link_struct字段
-            link_struct = response_data.get('link_struct', {})
-
-            if not link_struct:
-                self.logger.warning(f"用户ID {user_id} 的链接结构数据为空")
-                return
-
-            # 将link_struct转换为JSON字符串
-            try:
-                link_struct_json = json.dumps(link_struct, ensure_ascii=False)
-
-                # 存储到kol_api_data中，等待统一保存
-                self.kol_api_data['link_struct'] = {
-                    'link_struct': link_struct_json
-                }
-
-            except Exception as json_error:
-                self.logger.error(f"将链接结构转换为JSON时出错: {str(json_error)}")
-                self.logger.error(f"错误详情: {traceback.format_exc()}")
+            self.kol_api_data['creator_intro'] = response_data.get('self_intro', {})
 
         except Exception as e:
             self.logger.error(f"处理链接结构数据时出错: {str(e)}")
             self.logger.error(f"错误详情: {traceback.format_exc()}")
 
-    def _process_author_platform_info(self, response_data: Dict[str, Any], user_id: str):
-        """处理作者平台渠道信息API数据，只保存self_intro字段"""
-        try:
-            if not response_data:
-                self.logger.error("作者平台渠道信息API响应数据为空")
-                return
-
-            # 提取self_intro字段
-            self_intro = response_data.get('self_intro', '')
-
-            # 存储到kol_api_data中，等待统一保存
-            self.kol_api_data['platform_info'] = {
-                'self_intro': self_intro
-            }
-
-        except Exception as e:
-            self.logger.error(f"处理平台渠道信息数据时出错: {str(e)}")
-            self.logger.error(f"错误详情: {traceback.format_exc()}")
-
-    def _process_author_commerce_info(self, response_data: Dict[str, Any], user_id: str):
-        """处理作者商业传播信息API数据，保存整个响应对象为JSON格式"""
+    def _process_author_commerce_info(self, response_data: Dict[str, Any]):
+        """处理作者商业传播信息API数据 - 参考get_douyin_guakao.py第349-359行"""
         try:
             if not response_data:
                 self.logger.error("作者商业传播信息API响应数据为空")
                 return
 
-            # 将整个响应数据转换为JSON字符串
-            try:
-                try:
-                    commerce_info_json = json.dumps(response_data, ensure_ascii=False)
-                except Exception as json_error:
-                    self.logger.error(f"将作者基本信息转换为JSON时出错: {str(json_error)}")
-                    self.logger.error(f"错误详情: {traceback.format_exc()}")
-                    return
-
-                # 存储到kol_api_data中，等待统一保存
-                self.kol_api_data['commerce_info'] = {
-                    'commerce_info': commerce_info_json
-                }
-
-            except Exception as json_error:
-                self.logger.error(f"将商业传播信息转换为JSON时出错: {str(json_error)}")
-                self.logger.error(f"错误详情: {traceback.format_exc()}")
-
-        except Exception as e:
-            self.logger.error(f"处理商业传播信息数据时出错: {str(e)}")
-            self.logger.error(f"错误详情: {traceback.format_exc()}")
-
-    def _process_get_author_spread_info(self, response_data: Dict[str, Any], user_id: str):
-        """处理作者商业传播信息API数据，保存整个响应对象为JSON格式"""
-        try:
-            if not response_data:
-                self.logger.error("作者商业传播信息API响应数据为空")
-                return
-
-            # 将整个响应数据转换为JSON字符串
-            try:
-                try:
-                    commerce_info_json = json.dumps(response_data, ensure_ascii=False)
-                except Exception as json_error:
-                    self.logger.error(f"将作者基本信息转换为JSON时出错: {str(json_error)}")
-                    self.logger.error(f"错误详情: {traceback.format_exc()}")
-                    return
-
-                # 存储到kol_api_data中
-                self.kol_api_data['commerce_info'] = {
-                    'commerce_info': commerce_info_json
-                }
-
-                # 不再立即更新数据库，等待统一保存
-
-            except Exception as json_error:
-                self.logger.error(f"将商业传播信息转换为JSON时出错: {str(json_error)}")
-                self.logger.error(f"错误详情: {traceback.format_exc()}")
+            # 6. 预估CPE/CPM
+            self.other_api_data['expect_cpe'] = response_data.get('cpe_20_60', '')
+            self.other_api_data['expect_cpm'] = response_data.get('cpm_20_60', '')
+            self.other_api_data['platform_hot_rate'] = response_data.get('platform_hot_rate', '')
+            self.other_api_data['expect_read'] = response_data.get('vv', '')
 
         except Exception as e:
             self.logger.error(f"处理商业传播信息数据时出错: {str(e)}")
             self.logger.error(f"错误详情: {traceback.format_exc()}")
 
     def _process_author_spread_info(self, response_data: Dict[str, Any], user_id: str):
-        """处理作者传播信息API数据，保存整个响应对象为JSON格式"""
+        """处理作者传播信息API数据 - 存入yingxiao_api_data数组"""
         try:
-            self.logger.info(f"开始处理传播信息API数据，用户ID: {user_id}")
+            self.logger.info(f"开始处理传播信息API数据，用户ID: {user_id}，视频类型: {self.current_video_type}")
 
             if not response_data:
                 self.logger.error("作者传播信息API响应数据为空")
                 return
 
-            self.logger.info(f"传播信息API响应数据: {response_data}")
+            # 提取基础数据
+            play_mid = response_data.get('play_mid', '')
+            like_avg = response_data.get('like_avg', 0)
+            share_avg = response_data.get('share_avg', 0)
+            comment_avg = response_data.get('comment_avg', 0)
+            interact_total = int(like_avg) + int(share_avg) + int(comment_avg)
+            avg_duration = response_data.get('avg_duration', '')
 
-            # 将整个响应数据转换为JSON字符串
-            try:
-                spread_info_json = json.dumps(response_data, ensure_ascii=False)
+            # 完播率和互动率
+            play_over_rate = response_data.get('play_over_rate', {})
+            play_over_rate_value = play_over_rate.get('value', '') if isinstance(play_over_rate, dict) else ''
 
-                # 存储到kol_api_data中，等待统一保存
-                self.kol_api_data['spread_info'] = {
-                    'spread_info': spread_info_json
+            interact_rate = response_data.get('interact_rate', {})
+            interact_rate_value = interact_rate.get('value', '') if isinstance(interact_rate, dict) else ''
+
+            # 计算CPE和CPC
+            price_20_60 = self.kol_api_data.get('videoPrice', 0)
+            cpe_value = None
+            cpc_value = None
+
+            if price_20_60 and interact_total:
+                try:
+                    cpe_value = round(float(price_20_60) / float(interact_total), 2)
+                except:
+                    pass
+
+            if price_20_60 and play_mid:
+                try:
+                    cpc_value = round(float(price_20_60) / float(play_mid), 2)
+                except:
+                    pass
+
+            # 根据当前视频类型创建数据对象并添加到yingxiao_api_data数组
+            if self.current_video_type == 'xingtu':
+                # 星图视频数据 (douyin_business=1)
+                xingtu_data = {
+                    'platform_user_id': user_id,
+                    'douyin_business': 1,
+                    'play_median': play_mid,
+                    'interaction_volume': interact_total,
+                    'avg_duration': avg_duration,
+                    'completion_rate': play_over_rate_value,
+                    'interaction_rate': interact_rate_value,
+                    'douyin_likes': like_avg,
+                    'douyin_shares': share_avg,
+                    'douyin_comments': comment_avg,
+                    'douyin_cpe': cpe_value,
+                    'douyin_cpc': cpc_value
                 }
+                self.yingxiao_api_data.append(xingtu_data)
+                self.logger.info(f"✅ 星图视频传播信息已添加到yingxiao_api_data (douyin_business=1)")
 
-                self.logger.info(f"传播信息已存储到kol_api_data，等待统一保存")
-
-            except Exception as json_error:
-                self.logger.error(f"将传播信息转换为JSON时出错: {str(json_error)}")
-                self.logger.error(f"错误详情: {traceback.format_exc()}")
+            elif self.current_video_type == 'personal':
+                # 个人视频数据 (douyin_business=0)
+                personal_data = {
+                    'platform_user_id': user_id,
+                    'douyin_business': 0,
+                    'play_median': play_mid,
+                    'interaction_volume': interact_total,
+                    'avg_duration': avg_duration,
+                    'completion_rate': play_over_rate_value,
+                    'interaction_rate': interact_rate_value,
+                    'douyin_likes': like_avg,
+                    'douyin_shares': share_avg,
+                    'douyin_comments': comment_avg,
+                    'douyin_cpe': cpe_value,
+                    'douyin_cpc': cpc_value
+                }
+                self.yingxiao_api_data.append(personal_data)
+                self.logger.info(f"✅ 个人视频传播信息已添加到yingxiao_api_data (douyin_business=0)")
+            else:
+                self.logger.warning(f"未知的视频类型: {self.current_video_type}，跳过保存")
 
         except Exception as e:
             self.logger.error(f"处理传播信息数据时出错: {str(e)}")
@@ -697,7 +1048,7 @@ class DouYinSpider:
             self.logger.error(f"错误详情: {traceback.format_exc()}")
 
     def _process_author_commerce_seed_base_info(self, response_data: Dict[str, Any], user_id: str):
-        """处理作者商业种子基础信息API数据，保存avg_a3_incr_cnt字段"""
+        """处理作者商业种子基础信息API数据 - 参考get_douyin_guakao.py第361-368行"""
         try:
             self.logger.info(f"开始处理商业种子基础信息API数据，用户ID: {user_id}")
 
@@ -705,22 +1056,264 @@ class DouYinSpider:
                 self.logger.error("作者商业种子基础信息API响应数据为空")
                 return
 
-            self.logger.info(f"商业种子基础信息API响应数据: {response_data}")
+            # 7. 种草价值
+            self.other_api_data['search_after_view_count'] = response_data.get('avg_search_after_view_cnt', '')
+            self.other_api_data['search_after_view_rate'] = response_data.get('avg_search_after_view_rate', '')
+            self.other_api_data['a3_increase_count'] = response_data.get('avg_a3_incr_cnt', '')
+            self.other_api_data['store_entry_cost'] = response_data.get('shop_cost', '')
 
-            # 提取avg_a3_incr_cnt字段
-            avg_a3_incr_cnt = response_data.get('avg_a3_incr_cnt', 0)
-
-            self.logger.info(f"提取到的avg_a3_incr_cnt数据: {avg_a3_incr_cnt}")
-
-            # 存储到kol_api_data中，等待统一保存
-            self.kol_api_data['avg_a3_incr_cnt'] = avg_a3_incr_cnt
-
-            self.logger.info(f"商业种子基础信息已存储到kol_api_data，等待统一保存")
-            self.logger.info(f"存储后的kol_api_data['avg_a3_incr_cnt']: {self.kol_api_data['avg_a3_incr_cnt']}")
+            self.logger.info(f"✅ 种草价值信息处理完成：A3增长数 {self.other_api_data.get('a3_increase_count', '')}")
 
         except Exception as e:
             self.logger.error(f"处理商业种子基础信息数据时出错: {str(e)}")
             self.logger.error(f"错误详情: {traceback.format_exc()}")
+
+    def _process_author_convert_ability(self, response_data: Dict[str, Any], user_id: str):
+        """处理作者转化能力API数据 - 参考get_douyin_guakao.py第370-380行"""
+        try:
+            self.logger.info(f"开始处理转化能力API数据，用户ID: {user_id}")
+
+            if not response_data:
+                self.logger.error("作者转化能力API响应数据为空")
+                return
+
+            # 8. 转化价值
+            video_vv_median = response_data.get('video_vv_median', {})
+            if isinstance(video_vv_median, dict):
+                self.other_api_data['business_play_median'] = video_vv_median.get('value', '')
+
+            self.other_api_data['component_click_volume'] = response_data.get('component_click_cnt_range', '')
+            self.other_api_data['component_click_rate'] = response_data.get('component_click_rate_range', '')
+            self.other_api_data['conversion_cpc'] = response_data.get('related_cpc_range', '')
+
+            self.logger.info(f"✅ 转化价值信息处理完成")
+
+        except Exception as e:
+            self.logger.error(f"处理转化能力数据时出错: {str(e)}")
+            self.logger.error(f"错误详情: {traceback.format_exc()}")
+
+    def _process_author_link_card(self, response_data: Dict[str, Any], user_id: str):
+        """处理连接用户分布API数据 - 参考get_douyin_guakao.py第382-391行"""
+        try:
+            self.logger.info(f"开始处理连接用户分布API数据，用户ID: {user_id}")
+
+            if not response_data or 'link_struct' not in response_data:
+                self.logger.warning("连接用户分布API响应数据为空或缺少link_struct字段")
+                return
+            print(response_data)
+            # 9. 连接用户分布
+            link_struct = response_data['link_struct']
+            if isinstance(link_struct, dict):
+                self.other_api_data['aware_user_count'] = link_struct.get('1', {}).get('value', '')
+                self.other_api_data['interest_user_cost'] = link_struct.get('2', {}).get('value', '')
+                self.other_api_data['like_user_count'] = link_struct.get('3', {}).get('value', '')
+                self.other_api_data['connected_user_count'] = link_struct.get('5', {}).get('value', '')
+
+            self.logger.info(f"✅ 连接用户分布处理完成")
+
+        except Exception as e:
+            self.logger.error(f"处理连接用户分布数据时出错: {str(e)}")
+            self.logger.error(f"错误详情: {traceback.format_exc()}")
+
+    def _process_author_fans_distribution(self, response_data: Dict[str, Any], user_id: str):
+        """处理粉丝数据分布API数据 - 解析成JSON格式"""
+        try:
+            self.logger.info(f"开始处理粉丝数据分布API数据，用户ID: {user_id}")
+
+            if not response_data or 'distributions' not in response_data:
+                self.logger.warning("粉丝数据分布API响应数据为空或缺少distributions字段")
+                return
+
+            distributions = response_data['distributions']
+
+            # 初始化JSON对象
+            age_distribution = []  # 年龄分布（数组）
+            region_distribution = []  # 地域分布（数组）
+            crowd_distribution = []  # 八大人群分布（数组）
+
+            for dist in distributions:
+                dist_type = dist.get('type')
+                distribution_list = dist.get('distribution_list', [])
+
+                # 性别分布 type=1
+                if dist_type == 1:
+                    # 确保转换为数字类型
+                    total = sum([float(item.get('distribution_value', 0)) for item in distribution_list])
+                    for item in distribution_list:
+                        key = item.get('distribution_key')
+                        value = float(item.get('distribution_value', 0))
+                        if key == 'male' and total > 0:
+                            self.other_api_data['male_fan_ratio'] = f"{round(value / total * 100, 2)}%"
+                        elif key == 'female' and total > 0:
+                            self.other_api_data['female_fan_ratio'] = f"{round(value / total * 100, 2)}%"
+
+                # 年龄分布 type=2 - 转成数组格式
+                elif dist_type == 2:
+                    total = sum([float(item.get('distribution_value', 0)) for item in distribution_list])
+                    if total > 0:
+                        for item in distribution_list:
+                            age_range = item.get('distribution_key', '')
+                            value = float(item.get('distribution_value', 0))
+                            if age_range:
+                                percentage = round(value / total * 100, 2)
+                                age_distribution.append({
+                                    'age_range': age_range,
+                                    'percentage': percentage
+                                })
+
+                # 地域分布 type=4 - 转成JSON数组
+                elif dist_type == 4:
+                    total = sum([float(item.get('distribution_value', 0)) for item in distribution_list])
+                    if total > 0:
+                        for item in distribution_list:
+                            region_name = item.get('distribution_key', '')
+                            value = float(item.get('distribution_value', 0))
+                            if region_name:
+                                percentage = round(value / total * 100, 2)
+                                region_distribution.append({
+                                    'region': region_name,
+                                    'percentage': percentage
+                                })
+                        # 按占比降序排序
+                        region_distribution.sort(key=lambda x: x['percentage'], reverse=True)
+
+                # 八大人群分布 type=1024 - 转成数组格式
+                elif dist_type == 1024:
+                    total = sum([float(item.get('distribution_value', 0)) for item in distribution_list])
+                    if total > 0:
+                        for item in distribution_list:
+                            crowd_name = item.get('distribution_key', '')
+                            value = float(item.get('distribution_value', 0))
+                            if crowd_name:
+                                percentage = round(value / total * 100, 2)
+                                crowd_distribution.append({
+                                    'crowd_type': crowd_name,
+                                    'percentage': percentage
+                                })
+
+            # 将JSON数组转为字符串存储
+            if age_distribution:
+                self.other_api_data['old_ratio'] = json.dumps(age_distribution, ensure_ascii=False)
+
+            if region_distribution:
+                self.other_api_data['region_distribution'] = json.dumps(region_distribution, ensure_ascii=False)
+
+            if crowd_distribution:
+                self.other_api_data['below_ratio'] = json.dumps(crowd_distribution, ensure_ascii=False)
+
+        except Exception as e:
+            self.logger.error(f"处理粉丝数据分布时出错: {str(e)}")
+            self.logger.error(f"错误详情: {traceback.format_exc()}")
+
+    def send_wechat_notification(self, message):
+        """发送企业微信通知"""
+        try:
+            data = {
+                "msgtype": "text",
+                "text": {
+                    "content": message
+                }
+            }
+            response = requests.post(self.webhook_url, json=data, timeout=5)
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('errcode') == 0:
+                    self.logger.info("✅ 企业微信通知发送成功")
+                    return True
+                else:
+                    self.logger.warning(f"企业微信通知发送失败: {result}")
+                    return False
+            else:
+                self.logger.warning(f"企业微信通知发送失败，状态码: {response.status_code}")
+                return False
+        except Exception as e:
+            self.logger.error(f"发送企业微信通知时出错: {str(e)}")
+            return False
+
+    def check_and_handle_captcha(self):
+        """检测并处理验证码"""
+        try:
+            self.logger.info("检测是否出现验证码...")
+
+            # 常见的验证码元素选择器
+            captcha_selectors = [
+                'div[class*="captcha"]',
+                'div[class*="verify"]',
+                'div[class*="slider"]',
+                'iframe[src*="captcha"]',
+                'div.secsdk-captcha',
+                'div.verification',
+                'div.verify-wrap',
+            ]
+
+            # 检查是否出现验证码
+            captcha_found = False
+            for selector in captcha_selectors:
+                try:
+                    captcha_element = self.page.locator(selector).first
+                    if captcha_element.is_visible(timeout=1000):
+                        self.logger.warning(f"⚠️  检测到验证码！选择器: {selector}")
+                        captcha_found = True
+                        # 发送企业微信通知
+                        try:
+                            self.send_wechat_notification(
+                                f"🔒 更新抖音抓取检测到验证码！\n请尽快手动完成验证，程序已暂停等待...")
+                        except Exception as notify_error:
+                            self.logger.error(f"发送企业微信通知失败: {str(notify_error)}")
+                            pass
+                        break
+                except:
+                    continue
+
+            if captcha_found:
+                self.logger.warning("=" * 60)
+                self.logger.warning("🔒 检测到验证码，请手动完成验证！")
+                self.logger.warning("验证完成后程序将自动继续...")
+                self.logger.warning("=" * 60)
+
+                # 等待验证码消失，最多等待5分钟
+                max_wait_time = 300
+                check_interval = 3
+                elapsed_time = 0
+
+                while elapsed_time < max_wait_time:
+                    time.sleep(check_interval)
+                    elapsed_time += check_interval
+
+                    # 检查验证码是否已消失
+                    all_disappeared = True
+                    for selector in captcha_selectors:
+                        try:
+                            element = self.page.locator(selector).first
+                            if element.is_visible(timeout=500):
+                                all_disappeared = False
+                                break
+                        except:
+                            continue
+
+                    if all_disappeared:
+                        self.logger.info(f"✅ 验证码已完成！(等待了 {elapsed_time} 秒)")
+                        # 发送完成通知
+                        try:
+                            self.send_wechat_notification(f"✅ 验证码已完成！程序继续执行 (等待了 {elapsed_time} 秒)")
+                        except:
+                            pass
+                        time.sleep(2)
+                        return True
+
+                    # 每30秒提示一次
+                    if elapsed_time % 30 == 0:
+                        self.logger.info(f"仍在等待验证码完成... (已等待 {elapsed_time}/{max_wait_time} 秒)")
+
+                self.logger.error("❌ 验证码等待超时（5分钟）")
+                return False
+            else:
+                self.logger.info("✓ 未检测到验证码")
+                return True
+
+        except Exception as e:
+            self.logger.error(f"检测验证码时出错: {str(e)}")
+            return True
 
     def setup_logger(self):
         """设置日志配置，支持exe打包"""
@@ -812,13 +1405,13 @@ class DouYinSpider:
                         for i, elem in enumerate(all_elements):
                             try:
                                 if elem.is_visible(timeout=1000):
-                                    self.logger.info(f"第 {i+1} 个 .user-avatar 元素可见，Cookie有效")
+                                    self.logger.info(f"第 {i + 1} 个 .user-avatar 元素可见，Cookie有效")
                                     login_detected = True
                                     break
                                 else:
-                                    self.logger.debug(f"第 {i+1} 个 .user-avatar 元素不可见")
+                                    self.logger.debug(f"第 {i + 1} 个 .user-avatar 元素不可见")
                             except Exception as elem_error:
-                                self.logger.debug(f"第 {i+1} 个 .user-avatar 元素检查出错: {str(elem_error)}")
+                                self.logger.debug(f"第 {i + 1} 个 .user-avatar 元素检查出错: {str(elem_error)}")
                                 continue
 
                         if not login_detected:
@@ -854,6 +1447,11 @@ class DouYinSpider:
         参考小红书登录检测逻辑，使用wait_for_selector
         """
         try:
+
+            if self.page is None:
+                self.logger.info("浏览器未初始化，开始初始化...")
+                self.setup_browser()
+
             if self.is_logged_in:
                 self.logger.info("已处于登录状态")
                 return True
@@ -995,125 +1593,84 @@ class DouYinSpider:
 
             # 定义需要处理的目标API列表
             target_apis = [
-                '/api/data_sp/check_author_display',
-                '/api/data_sp/author_link_struct',
-                '/api/author/get_author_platform_channel_info_v2',
-                '/api/aggregator/get_author_commerce_spread_info',
-                '/api/data_sp/author_audience_distribution',
-                '/api/author/get_author_base_info',
-                '/api/author/get_author_marketing_info',
-                '/api/data_sp/get_author_spread_info',
-                '/api/aggregator/get_author_commerce_seed_base_info'
+                '/api/author/get_author_base_info',  # 详细信息
+                '/api/data_sp/check_author_display',  # 粉丝赞藏数
+                '/api/author/get_author_marketing_info',  # 报价
+                '/api/author/get_author_platform_channel_info_v2',  # 报价
+                '/api/aggregator/get_author_commerce_spread_info',  # 预估CPE/CPM
+                '/api/data_sp/get_author_spread_info',  # 传播价值
+                '/api/aggregator/get_author_commerce_seed_base_info',  # 种草价值
+                '/api/data_sp/get_author_convert_ability',  # 转化价值
+                '/api/data_sp/author_link_card',  # 连接用户分布
+                '/api/data_sp/get_author_fans_distribution',  # 粉丝数据
             ]
 
             # 检查是否是目标API
-            matched_api = None
-            for api in target_apis:
-                if api in url:
-                    matched_api = api
-                    break
-
-            # 如果不是目标API，直接返回（不打印任何信息）
-            if not matched_api:
+            is_target_api = any(api in url for api in target_apis)
+            if not is_target_api:
                 return
-
-            # 验证当前是否有正在处理的用户
-            if not self.current_kol or not self.current_kol.get('user_id'):
-                # 如果是登录相关的API请求，记录为调试信息而不是警告
-                if any(keyword in url.lower() for keyword in ['login', 'user', 'auth', 'profile', 'config']):
-                    self.logger.debug(f"登录过程中的API请求: {url}")
-                else:
-                    self.logger.warning(f"没有正在处理的用户，跳过API响应: {url}")
-                return
-
-            current_user_id = self.current_kol.get('user_id')
 
             # 只处理XHR或fetch请求
             if response.request.resource_type not in ['xhr', 'fetch']:
-                return
-
-            # 检查响应状态
-            if response.status != 200:
-                self.logger.warning(f"API响应状态码异常: {response.status}, URL: {url}")
-                return
-
-            # 检查浏览器是否仍然有效
-            if not hasattr(self, 'page') or not self.page or self.page.is_closed():
-                self.logger.info(f"页面已关闭，跳过API数据处理: {url}")
+                if '/api/data_sp/get_author_spread_info' in url:
+                    self.logger.warning(f"❌ spread_info API被过滤：资源类型 = {response.request.resource_type}")
                 return
 
             try:
+                # 检查页面状态
+                if self.page.is_closed():
+                    if '/api/data_sp/get_author_spread_info' in url:
+                        self.logger.warning(f"❌ spread_info API被过滤：页面已关闭")
+                    return
+
+                # 检查响应状态
+                if response.status != 200:
+                    self.logger.warning(f"API响应状态异常: {response.status}, URL: {url}")
+                    return
+
+                # 解析响应数据
                 response_data = response.json()
-            except playwright._impl._errors.Error as pe:
-                if "Protocol error (Network.getResponseBody)" in str(pe):
-                    self.logger.warning("无法获取响应体，可能是临时性问题，将在下次请求时重试")
-                    return
-                raise
-            except ValueError as e:
-                self.logger.error(f"解析JSON时出错: {str(e)}, URL: {url}")
-                return
 
-            if not response_data or not isinstance(response_data, dict):
-                self.logger.warning(f"API响应数据格式不正确: {url}")
-                return
-
-            # 通用检查API响应状态
-            if self._check_api_response_status(response_data, url):
-                return  # 如果状态异常，直接返回
-
-            # 根据不同的API类型进行处理
-            if '/api/data_sp/check_author_display' in url:
-                self._process_author_display(response_data, current_user_id)
-                self.api_response_processed = True
-
-            elif '/api/data_sp/author_link_struct' in url:
-                self._process_author_link_struct(response_data, current_user_id)
-                self.api_response_processed = True
-
-            # 1
-            elif '/api/author/get_author_platform_channel_info_v2' in url:
-                self._process_author_platform_info(response_data, current_user_id)
-                self.api_response_processed = True
-
-            elif '/api/aggregator/get_author_commerce_spread_info' in url:
-                self._process_author_commerce_info(response_data, current_user_id)
-                self.api_response_processed = True
-
-            elif '/api/data_sp/author_audience_distribution' in url:
-                if url in self.processed_api_responses:
-                    self.logger.debug("跳过重复的API响应")
+                # 检查数据有效性
+                if not response_data or not isinstance(response_data, dict):
+                    self.logger.warning(f"API响应数据格式不正确: {url}")
                     return
 
-                self.processed_api_responses.add(url)
-                self._process_author_audience_distribution(response_data, current_user_id)
-                self.api_response_processed = True
+                # 检查API响应状态
+                if self._check_api_response_status(response_data, url):
+                    if '/api/data_sp/get_author_spread_info' in url:
+                        self.logger.warning(f"❌ spread_info API被过滤：响应状态异常")
+                    return  # 如果状态异常，直接返回
 
-            elif '/api/author/get_author_base_info' in url:
-                self._process_author_base_info(response_data)
-                self.api_response_processed = True
+                # 确定匹配的API类型
+                matched_api = None
+                for api in target_apis:
+                    if api in url:
+                        matched_api = api
+                        break
 
-            elif '/api/author/get_author_marketing_info' in url:
-                self._process_marketing_info(response_data)
-                self.api_response_processed = True
+                # 存储API数据（用于首页加载时的批处理）
+                self.api_data[url] = {
+                    'url': url,
+                    'data': response_data,
+                    'api_type': matched_api,
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'status': response.status
+                }
 
-            elif '/api/data_sp/get_author_spread_info' in url:
-                self.logger.info(f"捕获到传播信息API: {url}")
-                self.logger.info(f"传播信息API响应数据: {response_data}")
-                self._process_author_spread_info(response_data, current_user_id)
-                self.api_response_processed = True
+                # 验证当前是否有正在处理的用户
+                if not self.current_kol or not self.current_kol.get('user_id'):
+                    return
 
-            elif '/api/aggregator/get_author_commerce_seed_base_info' in url:
-                self.logger.info(f"✅ 捕获到商业种子基础信息API: {url}")
-                self.logger.info(f"商业种子基础信息API响应数据: {response_data}")
-                self._process_author_commerce_seed_base_info(response_data, current_user_id)
-                self.api_response_processed = True
+            except Exception as e:
+                if '/api/data_sp/get_author_spread_info' in url:
+                    self.logger.error(f"❌ 处理 spread_info API时出错: {str(e)}")
+                self.logger.error(f"处理API数据时出错: {str(e)}, URL: {url}")
+                self.logger.error(f"错误详情: {traceback.format_exc()}")
 
         except Exception as e:
-            # 如果是浏览器关闭错误，不记录为错误
-            if "Target page, context or browser has been closed" in str(e):
-                self.logger.info(f"浏览器已关闭，跳过API数据处理: {url}")
-            else:
-                self.logger.error(f"处理API响应时出错: {str(e)}, URL: {url}")
+            self.logger.error(f"处理API响应时出错: {str(e)}")
+            self.logger.error(f"错误详情: {traceback.format_exc()}")
 
     def _save_cookies(self):
         """

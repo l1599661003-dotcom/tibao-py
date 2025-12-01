@@ -318,8 +318,8 @@ class PGYSpider:
                                     continue
 
                                 api_data = response_data['data']
-                                # if 'blogger' in api_url:
-                                #     self._process_blogger(api_data, item)
+                                if 'blogger' in api_url:
+                                    self._process_blogger(api_data, item)
                                 if 'notes_detail' in api_url:
                                     self._process_notes_detail(api_data, item)
                                 elif 'fans_summary' in api_url:

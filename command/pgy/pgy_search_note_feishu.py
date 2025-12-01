@@ -11,7 +11,7 @@ class GetPGYMediaAll:
     def __init__(self):
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-            'cookie': 'a1=19a5ead69f4zkdfll2met4caij5qsa4u5h4kzfkqg50000152304; webId=a482ce8dfc97a466250424206503fa86; customerClientId=505888866352470; x-user-id-pgy.xiaohongshu.com=68f9ddc3155e000000000001; xsecappid=ratlin; customer-sso-sid=68c5175735989617408737285jrenefomiqvidas; solar.beaker.session.id=AT-68c5175735989617408737295hcvofvvuloyuyns; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c5175735989617408737295hcvofvvuloyuyns; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c5175735989617408737295hcvofvvuloyuyns; acw_tc=0a4269db17636189803563777e61ac015f8cd8cf3920c3d5df210db85f65ef; loadts=1763618984928'
+            'cookie': 'abRequestId=b43b0375-a680-549b-802f-a5ad99896ecd; a1=195406449fdxtqwjh51u1p6d7mgplq0uhf3hg4rfp50000105650; webId=ffc4f1682f0baf7ebc3eb0b29650b1a1; gid=yj248K4Kyixfyj248K44ji4FifC9AEVx2y7yqiUUKfW6kx28U1A87k888y82K288jyfYq4Dj; customerClientId=876055260878386; web_session=030037a08dc40d777f7032a7572f4ac1be9de8; x-user-id-pgy.xiaohongshu.com=6627c7a700000000070041aa; xsecappid=ratlin; acw_tc=0a0d0e0317637965066776863e47f73becc410a3945a9c4de2ef02a868227e; customer-sso-sid=68c517575448451967926272cc1sx4zcx1bseicz; solar.beaker.session.id=AT-68c517575448451967893507h8d1zgoudslpvyr2; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c517575448451967893507h8d1zgoudslpvyr2; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c517575448451967893507h8d1zgoudslpvyr2; loadts=1763796541183',
         }
 
     def _extract_tags(self, blogger):
@@ -42,11 +42,11 @@ class GetPGYMediaAll:
         return '、'.join(tags_list) if tags_list else ''
 
     def handle(self):
-        base_data = {"searchType":0,"column":"mEngagementNum","sort":"desc","pageNum":1,"pageSize":20,"brandUserId":"62b58a79000000001b024664","marketTarget":None,"audienceGroup":[],"contentTag":["美食"],"personalTags":[],"gender":None,"location":["中国 重庆"],"signed":-1,"featureTags":[],"fansNumberLower":1000,"fansNumberUpper":20000,"fansAge":0,"fansGender":0,"accumCommonImpMedinNum30d":[],"readMidNor30":[],"interMidNor30":[],"thousandLikePercent30":[],"noteType":1,"progressOrderCnt":[],"tradeType":"不限","tradeReportBrandIdSet":[],"excludedTradeReportBrandId":False,"estimateCpuv30d":[],"inStar":0,"firstIndustry":"","secondIndustry":"","newHighQuality":0,"filterIntention":False,"flagList":[{"flagType":"HAS_BRAND_COOP_BUYER_AUTH","flagValue":"0"},{"flagType":"IS_HIGH_QUALITY","flagValue":"0"}],"activityCodes":[],"excludeLowActive":True,"fansNumUp":0,"excludedTradeReportBrand":False,"excludedTradeInviteReportBrand":False,"filterList":[]}
+        base_data = {"searchType":0,"column":"mEngagementNum","sort":"desc","pageNum":1,"pageSize":20,"brandUserId":"62b58a79000000001b024664","marketTarget":None,"audienceGroup":[],"contentTag":["职场"],"personalTags":[],"gender":None,"location":None,"signed":-1,"featureTags":["plog"],"fansAge":0,"fansGender":0,"accumCommonImpMedinNum30d":[],"readMidNor30":[],"interMidNor30":[],"thousandLikePercent30":[],"noteType":1,"notePriceLower":200,"notePriceUpper":1200,"progressOrderCnt":[],"tradeType":"不限","tradeReportBrandIdSet":[],"excludedTradeReportBrandId":False,"estimateCpuv30d":[],"inStar":0,"firstIndustry":"","secondIndustry":"","newHighQuality":0,"filterIntention":False,"flagList":[{"flagType":"HAS_BRAND_COOP_BUYER_AUTH","flagValue":"0"},{"flagType":"IS_HIGH_QUALITY","flagValue":"0"}],"activityCodes":[],"excludeLowActive":True,"fansNumUp":0,"excludedTradeReportBrand":False,"excludedTradeInviteReportBrand":False,"filterList":[]}
 
         all_data = []  # 存储所有博主数据
 
-        for i in range(1, 30):
+        for i in range(1, 200):
             data = base_data.copy()
             data['pageNum'] = i
 

@@ -8,7 +8,7 @@ from datetime import datetime
 from loguru import logger
 
 from models.models_tibao import KolFangpianPrice
-from service.pgy_service import get_mcn_detail, get_notes_detail
+from service.pgy_service import get_mcn_detail
 from core.localhost_fp_project import session
 
 """
@@ -158,5 +158,4 @@ def main():
 
 
 if __name__ == "__main__":
-    get_notes_detail('64b0b59e000000000a022263')
     main()

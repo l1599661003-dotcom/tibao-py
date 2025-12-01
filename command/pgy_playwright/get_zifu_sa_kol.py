@@ -271,13 +271,31 @@ class PGYSpider:
                             api_data = response_data['data']
                             if 'blogger' in api_url:
                                 self._process_blogger(api_data, item)
-                            if 'notes_detail' in api_url:
-                                self._process_notes_detail(api_data, item)
 
                         self.api_data.clear()
 
-                        # 所有 API 数据处理完毕后，点击笔记按钮
+                        # 所有 API 数据处理完毕后，先点击合作笔记按钮，然后开始分页
                         try:
+                            # 点击合作笔记按钮
+                            logger.info("准备点击合作笔记按钮")
+                            try:
+                                # 使用更精确的选择器路径查找合作笔记按钮
+                                # 路径: d-card-content > #noteCase > .note-type__select > .d-segment > .d-space > .d-segment-item-muted
+                                cooperation_note_button = self.page.locator("#noteCase .note-type__select .d-segment .d-space .d-segment-item.d-segment-item-muted").filter(has_text="合作笔记").first
+                                if cooperation_note_button.is_visible(timeout=5000):
+                                    cooperation_note_button.click()
+                                    logger.info("成功点击合作笔记按钮")
+                                    # 等待页面加载和API响应
+                                    self.common.random_sleep(3, 5)
+                                    try:
+                                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                                    except Exception as e:
+                                        logger.warning(f"等待页面加载完成时出错: {str(e)}")
+                                else:
+                                    logger.warning("未找到合作笔记按钮")
+                            except Exception as e:
+                                logger.error(f"点击合作笔记按钮时出错: {str(e)}")
+
                             self.api_data.clear()
                             # 处理第一页笔记详情数据
                             notes_data_copy = dict(self.api_data)

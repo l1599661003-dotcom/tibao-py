@@ -358,12 +358,14 @@ TABLE_MAPPING: Dict[str, Dict[str, Any]] = {
     },
 
     # 抖音KOL营销统计数据 (yingxiao_api_data)
+    # 注意：此表存储个人视频和星图视频两种类型的数据
+    # 同一个platform_user_id可能有两条记录（douyin_business=0和1）
     "douyin_kol_marketing_stats": {
         "mysql_table": "fp_douyin_kol_marketing_stats",
-        "primary_key": "id",
+        "primary_key": "platform_user_id",
         "sync_key": "sync_status",
         "batch_size": 1,
-        "is_update": False,
+        "is_update": True,  # 改为True，允许更新
         "state": 0,
         "fields": {
             "platform_user_id": "platform_user_id",

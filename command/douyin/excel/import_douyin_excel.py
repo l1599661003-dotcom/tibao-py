@@ -21,12 +21,13 @@ def export_douyin_kol_data():
             DouYinKolRealization.author_base_info,
             DouYinKolRealization.self_intro,
             DouyinSearchList.category,
+            DouyinSearchList.updated_at,
         ).outerjoin(
             DouYinKolRealization,
             DouyinSearchList.star_id == DouYinKolRealization.douyin_user_id
         ).filter(
             DouyinSearchList.status == 1,
-            # DouyinSearchList.import_status == 1,
+            DouyinSearchList.import_status == 1,
             DouyinSearchList.category is not None,
         ).order_by(DouyinSearchList.id)
 
@@ -63,6 +64,7 @@ def export_douyin_kol_data():
             author_base_info_json = row[5] or '{}'
             self_intro = row[6] or ''
             category = row[7] or ''
+            update_time = row[8] or ''
 
             # 解析价格信息
             price_1_20 = ''
@@ -152,6 +154,7 @@ def export_douyin_kol_data():
                 'gmv_90d': gmv_90d,
                 '微信号': self_intro,
                 '分类': category,
+                '抓取时间': update_time,
             })
 
         # 创建DataFrame并导出Excel

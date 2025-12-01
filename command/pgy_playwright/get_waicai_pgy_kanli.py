@@ -146,7 +146,7 @@ class WaicaiPGYSpider:
         """抓取博主信息 - 重构版本，匹配PHP逻辑"""
         try:
             # 查询需要更新的博主数据 - 匹配PHP查询逻辑
-            api_url = f"https://tianji.fangpian999.com/api/admin/creatorBusiness/getNewerCreator?type=3&page={self.config['PGY_LOGIN_CONFIG']['page']}&pageSize=1000"
+            api_url = f"https://tianji.fangpian999.com/api/admin/creatorBusiness/getNewerCreator?platform_id=1&type=3&page={self.config['PGY_LOGIN_CONFIG']['page']}&pageSize=1000"
 
             headers = {"Content-Type": "application/json"}
             logger.info(f"正在请求API: {api_url}")
@@ -290,13 +290,44 @@ class WaicaiPGYSpider:
 
 
 def main():
-    """主函数"""
-    try:
-        spider = WaicaiPGYSpider()
-        spider.run()
-    except Exception as e:
-        logger.error(f"程序启动失败: {str(e)}")
-        sys.exit(1)
+    """主函数 - 无限循环版本，每10分钟执行一次"""
+    logger.info("=" * 70)
+    logger.info("外采博主数据采集程序启动 - 无限循环模式")
+    logger.info("每10分钟执行一次")
+    logger.info("按 Ctrl+C 可退出程序")
+    logger.info("=" * 70)
+
+    loop_count = 0
+
+    while True:
+        loop_count += 1
+        try:
+            logger.info(f"\n{'='*70}")
+            logger.info(f"开始第 {loop_count} 轮数据采集 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"{'='*70}\n")
+
+            spider = WaicaiPGYSpider()
+            spider.run()
+
+            logger.info(f"\n{'='*70}")
+            logger.info(f"第 {loop_count} 轮数据采集完成")
+            logger.info(f"等待10分钟后执行下一轮...")
+            logger.info(f"下次执行时间: {datetime.fromtimestamp(time.time() + 600).strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"{'='*70}\n")
+
+            # 等待10分钟(600秒)
+            time.sleep(600)
+
+        except KeyboardInterrupt:
+            logger.info("\n用户中断程序")
+            logger.info(f"程序共执行了 {loop_count} 轮")
+            logger.info(f"退出时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            break
+        except Exception as e:
+            logger.error(f"第 {loop_count} 轮执行失败: {str(e)}")
+            logger.error(f"错误详情: {traceback.format_exc()}")
+            logger.info("等待10分钟后重试...")
+            time.sleep(600)
 
 
 if __name__ == "__main__":

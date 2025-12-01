@@ -102,6 +102,9 @@ class DouYinSpider:
         self.other_api_data = {}
         self.yingxiao_api_data = []  # 营销传播数据数组
 
+        # 企业微信webhook地址
+        self.webhook_url = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=b3b0cdf5-62b6-49d7-80d7-6f741c3c2c4d"
+
         # 浏览器相关属性初始化
         self.playwright = None
         self.browser = None
@@ -169,11 +172,29 @@ class DouYinSpider:
                 # 点击商业能力标签
                 business_ability_tab = self.page.locator("div.el-tabs__nav >> div:has-text('商业能力')")
                 if business_ability_tab and business_ability_tab.is_visible():
+                    # 点击前等待页面完全响应
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                    except Exception as e:
+                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
                     self.api_data = {}
                     time.sleep(0.5)
                     business_ability_tab.click()
                     self.logger.info("成功点击商业能力标签")
-                    time.sleep(2)  # 等待页面加载
+
+                    # 等待页面加载完成并增加延迟
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                    except Exception as e:
+                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                    self.common.random_sleep(3, 4)  # 增加3-4秒延迟，避免操作过快
+
+                    # 检测并处理验证码
+                    if not self.check_and_handle_captcha():
+                        self.logger.error("验证码处理失败")
+                        return 0
 
                     # 查找两个label标签
                     try:
@@ -207,9 +228,22 @@ class DouYinSpider:
                             # 确保星图视频被选中
                             xingtu_class = xingtu_video_btn.get_attribute('class')
                             if 'is-checked' not in xingtu_class:
+                                # 点击前等待页面完全响应
+                                try:
+                                    self.page.wait_for_load_state('networkidle', timeout=5000)
+                                except Exception as e:
+                                    self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
                                 xingtu_video_btn.click()
                                 self.logger.info("点击星图视频按钮")
-                                time.sleep(2)
+
+                                # 等待页面加载完成并增加延迟
+                                try:
+                                    self.page.wait_for_load_state('networkidle', timeout=5000)
+                                except Exception as e:
+                                    self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                                self.common.random_sleep(3, 4)  # 增加3-4秒延迟
 
                             # 等待并标记为获取星图视频数据
                             self.current_video_type = 'xingtu'  # 标记当前视频类型
@@ -323,15 +357,23 @@ class DouYinSpider:
                                 self.api_data = {}
                                 self.logger.info("已清空 api_data")
 
+                                # 点击前等待页面完全响应
+                                try:
+                                    self.page.wait_for_load_state('networkidle', timeout=5000)
+                                except Exception as e:
+                                    self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
                                 self.logger.info("点击个人视频按钮...")
                                 personal_video_btn.click()
 
-                                # 等待页面加载完成
+                                # 等待页面加载完成并增加延迟
                                 try:
                                     self.page.wait_for_load_state('networkidle', timeout=5000)
                                     self.logger.info("页面网络空闲")
                                 except Exception as e:
                                     self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                                self.common.random_sleep(3, 4)  # 增加3-4秒延迟
 
                                 self.logger.info("等待个人视频API数据加载...")
 
@@ -392,9 +434,22 @@ class DouYinSpider:
                             if personal_video_btn:
                                 personal_class = personal_video_btn.get_attribute('class')
                                 if 'is-checked' not in personal_class:
+                                    # 点击前等待页面完全响应
+                                    try:
+                                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                                    except Exception as e:
+                                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
                                     personal_video_btn.click()
                                     self.logger.info("点击个人视频按钮")
-                                    time.sleep(2)
+
+                                    # 等待页面加载完成并增加延迟
+                                    try:
+                                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                                    except Exception as e:
+                                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                                    self.common.random_sleep(3, 4)  # 增加3-4秒延迟
 
                             # 标记为获取个人视频数据
                             self.current_video_type = 'personal'
@@ -477,15 +532,69 @@ class DouYinSpider:
             # 点击连接用户标签
             creative_tab = self.page.locator("div.el-tabs__nav >> div:has-text('连接用户')")
             if creative_tab and creative_tab.is_visible():
-                # 点击前等待一下确保元素稳定
-                time.sleep(0.5)
-                creative_tab.click()
-                self.logger.info("成功点击连接用户标签")
-
+                # 点击前等待页面完全响应
                 try:
                     self.page.wait_for_load_state('networkidle', timeout=5000)
                 except Exception as e:
                     self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                time.sleep(0.5)
+                creative_tab.click()
+                self.logger.info("成功点击连接用户标签")
+
+                # 等待页面加载完成并增加延迟
+                try:
+                    self.page.wait_for_load_state('networkidle', timeout=5000)
+                except Exception as e:
+                    self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                self.common.random_sleep(3, 4)  # 增加3-4秒延迟，避免操作过快
+
+                # 检测并处理验证码
+                if not self.check_and_handle_captcha():
+                    self.logger.error("验证码处理失败")
+                    return 0
+
+                # 【关键】主动等待连接用户API出现
+                self.logger.info("等待连接用户API数据加载...")
+                max_wait_time = 15  # 最多等待15秒
+                poll_interval = 0.5  # 每0.5秒检查一次
+                waited_time = 0
+                api_found = False
+
+                self.logger.info(f"开始轮询等待 author_link_card API (最多等待{max_wait_time}秒)...")
+
+                while waited_time < max_wait_time:
+                    # 检查是否已经有连接用户的 API
+                    link_card_api_count = sum(
+                        1 for url in self.api_data.keys()
+                        if '/api/data_sp/author_link_card' in url
+                    )
+
+                    if link_card_api_count > 0:
+                        self.logger.info(f"✅ 检测到 author_link_card API！等待时间: {waited_time:.1f}秒")
+                        api_found = True
+                        break
+
+                    # 【关键】使用 page.wait_for_timeout 而不是 time.sleep
+                    # 这样可以让 playwright 事件循环处理响应
+                    self.page.wait_for_timeout(int(poll_interval * 1000))
+                    waited_time += poll_interval
+
+                if not api_found:
+                    self.logger.warning(f"⏰ 等待超时({max_wait_time}秒)，未检测到 author_link_card API")
+
+                self.logger.info("处理连接用户页面的API数据...")
+
+                # 1. 处理连接用户分布 (link_card)
+                for api_url, response_info in self.api_data.items():
+                    if 'data' not in response_info:
+                        continue
+                    if '/api/data_sp/author_link_card' in api_url:
+                        response_data = response_info['data']
+                        self.logger.info("处理连接用户分布数据...")
+                        self._process_author_link_card(response_data, user_id)
+                        break
 
                 # 鼠标滚轮向下滚动几下，确保页面完全加载
                 self.logger.info("向下滚动页面确保内容完全加载...")
@@ -508,15 +617,36 @@ class DouYinSpider:
                 except Exception as e:
                     self.logger.warning(f"等待页面网络空闲时出错: {str(e)}")
 
+                self.common.random_sleep(3, 4)  # 增加3-4秒延迟，确保页面完全加载
+
                 fan_portrait_button = self.page.locator("text=粉丝画像")
                 if fan_portrait_button and fan_portrait_button.is_visible():
                     # 【重要】点击前清空 api_data，确保只捕获粉丝画像相关的API
                     self.api_data = {}
                     self.logger.info("已清空 api_data，准备点击粉丝画像按钮")
 
+                    # 点击前等待页面完全响应
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                    except Exception as e:
+                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
                     time.sleep(0.5)
                     fan_portrait_button.click()
                     self.logger.info("成功点击粉丝画像按钮")
+
+                    # 等待页面加载完成并增加延迟
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                    except Exception as e:
+                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                    self.common.random_sleep(3, 4)  # 增加3-4秒延迟，避免操作过快
+
+                    # 检测并处理验证码
+                    if not self.check_and_handle_captcha():
+                        self.logger.error("验证码处理失败")
+                        return 0
 
                     # 【关键】主动等待粉丝分布API出现
                     max_wait_time = 15  # 最多等待15秒
@@ -550,18 +680,6 @@ class DouYinSpider:
                     self.logger.info(f"📊 点击粉丝画像后，api_data 中有 {len(self.api_data)} 个API")
                     for api_url in self.api_data.keys():
                         self.logger.info(f"  - {api_url}")
-
-                    self.logger.info("处理连接用户页面的API数据...")
-
-                    # 1. 处理连接用户分布 (link_card)
-                    for api_url, response_info in self.api_data.items():
-                        if 'data' not in response_info:
-                            continue
-                        if '/api/data_sp/author_link_card' in api_url:
-                            response_data = response_info['data']
-                            self.logger.info("处理连接用户分布数据...")
-                            self._process_author_link_card(response_data, user_id)
-                            break
 
                     # 2. 处理粉丝数据 (fans_distribution)
                     self.logger.info(f"开始查找粉丝分布API，当前api_data有 {len(self.api_data)} 个API")
@@ -703,6 +821,8 @@ class DouYinSpider:
             self.kol_api_data['name'] = response_data.get('nick_name', '')
             self.kol_api_data['platform_user_id'] = response_data.get('id')
             self.kol_api_data['location'] = response_data.get('city')
+            self.kol_api_data['redId'] = response_data.get('short_id')
+            self.kol_api_data['headPhoto'] = response_data.get('avatar_uri')
             self.kol_api_data['gender'] = gender
             tags_relation = response_data.get('tags_relation', {})
             if tags_relation:
@@ -943,7 +1063,7 @@ class DouYinSpider:
             if not response_data or 'link_struct' not in response_data:
                 self.logger.warning("连接用户分布API响应数据为空或缺少link_struct字段")
                 return
-
+            print(response_data)
             # 9. 连接用户分布
             link_struct = response_data['link_struct']
             if isinstance(link_struct, dict):
@@ -1047,6 +1167,115 @@ class DouYinSpider:
         except Exception as e:
             self.logger.error(f"处理粉丝数据分布时出错: {str(e)}")
             self.logger.error(f"错误详情: {traceback.format_exc()}")
+
+    def send_wechat_notification(self, message):
+        """发送企业微信通知"""
+        try:
+            data = {
+                "msgtype": "text",
+                "text": {
+                    "content": message
+                }
+            }
+            response = requests.post(self.webhook_url, json=data, timeout=5)
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('errcode') == 0:
+                    self.logger.info("✅ 企业微信通知发送成功")
+                    return True
+                else:
+                    self.logger.warning(f"企业微信通知发送失败: {result}")
+                    return False
+            else:
+                self.logger.warning(f"企业微信通知发送失败，状态码: {response.status_code}")
+                return False
+        except Exception as e:
+            self.logger.error(f"发送企业微信通知时出错: {str(e)}")
+            return False
+
+    def check_and_handle_captcha(self):
+        """检测并处理验证码"""
+        try:
+            self.logger.info("检测是否出现验证码...")
+
+            # 常见的验证码元素选择器
+            captcha_selectors = [
+                'div[class*="captcha"]',
+                'div[class*="verify"]',
+                'div[class*="slider"]',
+                'iframe[src*="captcha"]',
+                'div.secsdk-captcha',
+                'div.verification',
+                'div.verify-wrap',
+            ]
+
+            # 检查是否出现验证码
+            captcha_found = False
+            for selector in captcha_selectors:
+                try:
+                    captcha_element = self.page.locator(selector).first
+                    if captcha_element.is_visible(timeout=1000):
+                        self.logger.warning(f"⚠️  检测到验证码！选择器: {selector}")
+                        captcha_found = True
+                        # 发送企业微信通知
+                        try:
+                            self.send_wechat_notification(f"🔒 抖音刊例数据抓取检测到验证码！\n请尽快手动完成验证，程序已暂停等待...")
+                        except Exception as notify_error:
+                            self.logger.error(f"发送企业微信通知失败: {str(notify_error)}")
+                            pass
+                        break
+                except:
+                    continue
+
+            if captcha_found:
+                self.logger.warning("=" * 60)
+                self.logger.warning("🔒 检测到验证码，请手动完成验证！")
+                self.logger.warning("验证完成后程序将自动继续...")
+                self.logger.warning("=" * 60)
+
+                # 等待验证码消失，最多等待5分钟
+                max_wait_time = 300
+                check_interval = 3
+                elapsed_time = 0
+
+                while elapsed_time < max_wait_time:
+                    time.sleep(check_interval)
+                    elapsed_time += check_interval
+
+                    # 检查验证码是否已消失
+                    all_disappeared = True
+                    for selector in captcha_selectors:
+                        try:
+                            element = self.page.locator(selector).first
+                            if element.is_visible(timeout=500):
+                                all_disappeared = False
+                                break
+                        except:
+                            continue
+
+                    if all_disappeared:
+                        self.logger.info(f"✅ 验证码已完成！(等待了 {elapsed_time} 秒)")
+                        # 发送完成通知
+                        try:
+                            self.send_wechat_notification(f"✅ 验证码已完成！程序继续执行 (等待了 {elapsed_time} 秒)")
+                        except:
+                            pass
+                        time.sleep(2)
+                        return True
+
+                    # 每30秒提示一次
+                    if elapsed_time % 30 == 0:
+                        self.logger.info(f"仍在等待验证码完成... (已等待 {elapsed_time}/{max_wait_time} 秒)")
+
+                self.logger.error("❌ 验证码等待超时（5分钟）")
+                return False
+            else:
+                self.logger.info("✓ 未检测到验证码")
+                return True
+
+        except Exception as e:
+            self.logger.error(f"检测验证码时出错: {str(e)}")
+            return True
 
     def setup_logger(self):
         """设置日志配置，支持exe打包"""

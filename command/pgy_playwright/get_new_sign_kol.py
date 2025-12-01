@@ -132,9 +132,121 @@ class PGYSpider:
         }
         self.current_user_data = {}  # 当前用户数据
 
+        # 企业微信webhook地址
+        self.webhook_url = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=b3b0cdf5-62b6-49d7-80d7-6f741c3c2c4d"
+
         # 添加导航错误计数器
         self.navigation_error_count = 0
         self.max_navigation_errors = 3
+
+    def send_wechat_notification(self, message):
+        """发送企业微信通知"""
+        try:
+            data = {
+                "msgtype": "text",
+                "text": {
+                    "content": message
+                }
+            }
+            response = requests.post(self.webhook_url, json=data, timeout=5)
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('errcode') == 0:
+                    logger.info("✅ 企业微信通知发送成功")
+                    return True
+                else:
+                    logger.warning(f"企业微信通知发送失败: {result}")
+                    return False
+            else:
+                logger.warning(f"企业微信通知发送失败，状态码: {response.status_code}")
+                return False
+        except Exception as e:
+            logger.error(f"发送企业微信通知时出错: {str(e)}")
+            return False
+
+    def check_and_handle_captcha(self):
+        """检测并处理验证码"""
+        try:
+            logger.info("检测是否出现验证码...")
+
+            # 常见的验证码元素选择器
+            captcha_selectors = [
+                'div[class*="captcha"]',
+                'div[class*="verify"]',
+                'div[class*="slider"]',
+                'iframe[src*="captcha"]',
+                'div.secsdk-captcha',
+                'div.verification',
+                'div.verify-wrap',
+            ]
+
+            # 检查是否出现验证码
+            captcha_found = False
+            for selector in captcha_selectors:
+                try:
+                    captcha_element = self.page.locator(selector).first
+                    if captcha_element.is_visible(timeout=1000):
+                        logger.warning(f"⚠️  检测到验证码！选择器: {selector}")
+                        captcha_found = True
+                        # 发送企业微信通知
+                        try:
+                            self.send_wechat_notification(f"🔒 蒲公英新签约博主数据抓取检测到验证码！\n请尽快手动完成验证，程序已暂停等待...")
+                        except Exception as notify_error:
+                            logger.error(f"发送企业微信通知失败: {str(notify_error)}")
+                            pass
+                        break
+                except:
+                    continue
+
+            if captcha_found:
+                logger.warning("=" * 60)
+                logger.warning("🔒 检测到验证码，请手动完成验证！")
+                logger.warning("验证完成后程序将自动继续...")
+                logger.warning("=" * 60)
+
+                # 等待验证码消失，最多等待5分钟
+                max_wait_time = 300
+                check_interval = 3
+                elapsed_time = 0
+
+                while elapsed_time < max_wait_time:
+                    time.sleep(check_interval)
+                    elapsed_time += check_interval
+
+                    # 检查验证码是否已消失
+                    all_disappeared = True
+                    for selector in captcha_selectors:
+                        try:
+                            element = self.page.locator(selector).first
+                            if element.is_visible(timeout=500):
+                                all_disappeared = False
+                                break
+                        except:
+                            continue
+
+                    if all_disappeared:
+                        logger.info(f"✅ 验证码已完成！(等待了 {elapsed_time} 秒)")
+                        # 发送完成通知
+                        try:
+                            self.send_wechat_notification(f"✅ 验证码已完成！程序继续执行 (等待了 {elapsed_time} 秒)")
+                        except:
+                            pass
+                        time.sleep(2)
+                        return True
+
+                    # 每30秒提示一次
+                    if elapsed_time % 30 == 0:
+                        logger.info(f"仍在等待验证码完成... (已等待 {elapsed_time}/{max_wait_time} 秒)")
+
+                logger.error("❌ 验证码等待超时（5分钟）")
+                return False
+            else:
+                logger.info("✓ 未检测到验证码")
+                return True
+
+        except Exception as e:
+            logger.error(f"检测验证码时出错: {str(e)}")
+            return True
 
     def setup_logger(self):
         """设置日志配置，支持exe打包"""
@@ -1236,24 +1348,57 @@ class PGYSpider:
             # 根据action_type执行不同的操作
             if action_type == 'click_button':
                 # 点击按钮操作
+                # 点击前等待页面完全响应
+                try:
+                    self.page.wait_for_load_state('networkidle', timeout=5000)
+                except Exception as e:
+                    logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
                 dropdown_container = self.page.locator('.d-spinner-nested-loading')
                 switch_button = dropdown_container.locator(selector).first
                 if not switch_button.is_visible(timeout=5000):
                     logger.warning(f"按钮不可见: {selector}")
                     return False
+
                 switch_button.click()
                 logger.info(f"成功点击按钮: {selector}")
 
+                # 等待页面加载完成并增加延迟
+                try:
+                    self.page.wait_for_load_state('networkidle', timeout=5000)
+                except Exception as e:
+                    logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                self.common.random_sleep(3, 4)  # 增加3-4秒延迟，避免操作过快
+
+                # 检测并处理验证码
+                if not self.check_and_handle_captcha():
+                    logger.error("验证码处理失败")
+                    return False
+
             elif action_type == 'select_dropdown':
                 # 下拉框选择操作
+                # 点击前等待页面完全响应
+                try:
+                    self.page.wait_for_load_state('networkidle', timeout=5000)
+                except Exception as e:
+                    logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
                 dropdown_element = self.page.locator(selector)
                 if not dropdown_element.is_visible(timeout=5000):
                     logger.warning(f"下拉框不可见: {selector}")
                     return False
+
                 dropdown_element.click()
 
+                # 等待页面加载完成并增加延迟
+                try:
+                    self.page.wait_for_load_state('networkidle', timeout=5000)
+                except Exception as e:
+                    logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
                 # 等待下拉选项出现
-                self.common.random_sleep(1, 2)
+                self.common.random_sleep(3, 4)
 
                 # 选择指定选项
                 if option_text:
@@ -1261,17 +1406,31 @@ class PGYSpider:
                     if not option_element.is_visible(timeout=3000):
                         logger.warning(f"选项不可见: {option_text}")
                         return False
+
+                    # 点击前等待页面完全响应
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                    except Exception as e:
+                        logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
                     option_element.click()
                     logger.info(f"成功选择选项: {option_text}")
+
+                    # 等待页面加载完成并增加延迟
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                    except Exception as e:
+                        logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                    self.common.random_sleep(3, 4)  # 增加3-4秒延迟，避免操作过快
+
+                # 检测并处理验证码
+                if not self.check_and_handle_captcha():
+                    logger.error("验证码处理失败")
+                    return False
             else:
                 logger.warning(f"不支持的操作类型: {action_type}")
                 return False
-
-            # 等待页面加载完成
-            try:
-                self.page.wait_for_load_state('networkidle', timeout=5000)
-            except Exception as e:
-                logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
             # 等待一段时间让API数据加载
             if action_type == 'select_dropdown':

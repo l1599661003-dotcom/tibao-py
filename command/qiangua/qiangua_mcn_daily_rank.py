@@ -25,7 +25,7 @@ def show_mcn_selection_dialog():
         '杠上开花', '时刻文化', '美哒文化', '旗鱼跃动', '二咖', '西瓜创想', '灵猫文化',
         '集星文化', '尚世文化', '长沙丁丁', '明诚文化', '掌邦文化', '滕云文化', '鹿鼎文化',
         '丁游文化', '快美BeautyQ', '麦籽网络', '十月知行', '苏颜', '少女派', '最美妆',
-        '小雨互动', '壹枝花'
+        '小雨互动', '壹枝花', '每天传媒', '暖阳网络','初晨'
     ]
 
     selected_mcns = []
@@ -881,10 +881,23 @@ def get_base_dir():
     """获取程序运行目录（支持打包后的exe）"""
     if getattr(sys, 'frozen', False):
         # 如果是打包后的exe，使用exe所在目录
-        return os.path.dirname(sys.executable)
+        base = os.path.dirname(sys.executable)
     else:
         # 如果是Python脚本，使用脚本所在目录
-        return os.path.dirname(os.path.abspath(__file__))
+        base = os.path.dirname(os.path.abspath(__file__))
+
+    # 检查路径是否包含中文字符，如果包含则使用临时目录
+    try:
+        # 尝试编码为ASCII，如果失败说明包含中文
+        base.encode('ascii')
+        return base
+    except UnicodeEncodeError:
+        # 包含中文，使用用户的临时目录下的英文路径
+        import tempfile
+        temp_base = os.path.join(tempfile.gettempdir(), 'qiangua_mcn_spider')
+        os.makedirs(temp_base, exist_ok=True)
+        print(f"警告: 检测到程序路径包含中文字符，使用临时目录: {temp_base}")
+        return temp_base
 
 
 class QianguaMcnDailyRankSpider:
@@ -933,6 +946,13 @@ class QianguaMcnDailyRankSpider:
             '二咖': {
                 'search_keywords': ['二咖'],
                 'filter_rules': lambda name: '二咖传媒' in name  # 取包含"二咖传媒"的
+            },
+            # '每天传媒', '暖阳网络', '初晨'
+            '初晨': {
+                'search_keywords': ['每天传媒', '暖阳网络', '初晨'],
+                'filter_rules': lambda name: (
+                        name in ['每天传媒', '暖阳网络', '初晨']
+                )
             },
             '丁丁': {
                 'search_keywords': ['集星文化', '尚世文化', '长沙丁丁', '明诚文化', '掌邦文化',
@@ -1096,29 +1116,29 @@ class QianguaMcnDailyRankSpider:
         """执行登录操作"""
         try:
             logger.info("开始登录...")
-            # self.page.click("text=登录/注册")
-            # self.human_delay(1.5, 2.5)
-            #
-            # self.page.click("text=手机登录")
-            # self.human_delay(1.5, 2.5)
-            #
-            # # 输入账号密码
-            # self.page.fill("input[placeholder='请输入手机号']", '13151572333')
-            # self.human_delay(1.0, 1.8)
-            # self.page.fill("input[placeholder='请输入登录密码']", '12345678abc')
-            # self.human_delay(1.0, 1.8)
-            #
-            # # 勾选协议
-            # self.page.click('.el-checkbox__inner')
-            # self.human_delay(0.8, 1.4)
-            #
-            # # 点击登录按钮
-            # self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
-            # self.human_delay(1.0, 2.0)
-            #
-            # logger.info("已点击登录按钮,等待滑块验证...")
-            # logger.info("请手动完成滑块验证并点击登录!")
-            # self.human_delay(1.5, 2.5)
+            self.page.click("text=登录/注册")
+            self.human_delay(1.5, 2.5)
+
+            self.page.click("text=手机登录")
+            self.human_delay(1.5, 2.5)
+
+            # 输入账号密码
+            self.page.fill("input[placeholder='请输入手机号']", '13151572333')
+            self.human_delay(1.0, 1.8)
+            self.page.fill("input[placeholder='请输入登录密码']", '12345678abc')
+            self.human_delay(1.0, 1.8)
+
+            # 勾选协议
+            self.page.click('.el-checkbox__inner')
+            self.human_delay(0.8, 1.4)
+
+            # 点击登录按钮
+            self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
+            self.human_delay(1.0, 2.0)
+
+            logger.info("已点击登录按钮,等待滑块验证...")
+            logger.info("请手动完成滑块验证并点击登录!")
+            self.human_delay(1.5, 2.5)
 
             # 等待用户手动完成滑块验证和登录
             logger.info("等待用户手动完成滑块验证和登录(最多等待60秒)...")
@@ -1643,6 +1663,7 @@ class QianguaMcnDailyRankSpider:
 
                     # 构造数据字典
                     data_dict = {
+                        '机构排名': item.get('RankNumber') or '',
                         '昵称': item.get('NickName') or '',
                         '预估商业收入': rank_value_wan,
                         '合作品牌数': item.get('BrandCount') or 0,
@@ -1689,36 +1710,46 @@ class QianguaMcnDailyRankSpider:
             return False
 
     def filter_mcn_data(self, mcn_name, data_list):
-        """根据MCN名称过滤数据"""
+        """根据MCN名称过滤数据并去重"""
         # 检查是否在合并规则中
         merge_rule = self.mcn_merge_rules.get(mcn_name)
 
         if not merge_rule:
-            # 如果不在合并规则中，返回所有数据
-            return data_list
+            # 如果不在合并规则中，返回所有数据（但需要去重）
+            filtered_data = data_list
+        else:
+            filter_rules = merge_rule.get('filter_rules')
 
-        filter_rules = merge_rule.get('filter_rules')
+            if filter_rules is None:
+                # 没有过滤规则，返回所有数据
+                filtered_data = data_list
+            else:
+                filtered_data = []
 
-        if filter_rules is None:
-            # 没有过滤规则，返回所有数据
-            return data_list
+                for data in data_list:
+                    nickname = data.get('昵称', '')
 
-        filtered_data = []
+                    if callable(filter_rules):
+                        # 如果是函数，调用函数判断
+                        if filter_rules(nickname):
+                            filtered_data.append(data)
+                    elif isinstance(filter_rules, list):
+                        # 如果是列表，检查是否在列表中
+                        if nickname in filter_rules:
+                            filtered_data.append(data)
 
-        for data in data_list:
+        # 去重：基于昵称去重，保留每个昵称的第一条数据
+        seen_nicknames = set()
+        deduped_data = []
+
+        for data in filtered_data:
             nickname = data.get('昵称', '')
+            if nickname and nickname not in seen_nicknames:
+                seen_nicknames.add(nickname)
+                deduped_data.append(data)
 
-            if callable(filter_rules):
-                # 如果是函数，调用函数判断
-                if filter_rules(nickname):
-                    filtered_data.append(data)
-            elif isinstance(filter_rules, list):
-                # 如果是列表，检查是否在列表中
-                if nickname in filter_rules:
-                    filtered_data.append(data)
-
-        logger.info(f"MCN '{mcn_name}' 过滤前: {len(data_list)} 条，过滤后: {len(filtered_data)} 条")
-        return filtered_data
+        logger.info(f"MCN '{mcn_name}' 过滤前: {len(data_list)} 条，过滤后: {len(filtered_data)} 条，去重后: {len(deduped_data)} 条")
+        return deduped_data
 
     def merge_mcn_data(self, mcn_name, data_list):
         """合并MCN数据"""
@@ -1727,6 +1758,7 @@ class QianguaMcnDailyRankSpider:
 
         # 合并数据
         merged_data = {
+            '机构排名': '',
             '昵称': mcn_name,
             '预估商业收入': 0,
             '合作品牌数': 0,
@@ -1736,8 +1768,18 @@ class QianguaMcnDailyRankSpider:
         }
 
         tags_set = set()
+        rank_numbers = []  # 收集所有排名，用于取最小值
 
         for data in data_list:
+            # 收集排名（字符串类型）
+            rank = data.get('机构排名', '')
+            if rank and str(rank).strip():
+                try:
+                    rank_numbers.append(int(str(rank)))
+                except (ValueError, TypeError):
+                    pass
+
+            # 累加数值字段
             merged_data['预估商业收入'] += data.get('预估商业收入', 0)
             merged_data['合作品牌数'] += data.get('合作品牌数', 0)
             merged_data['合作博主数'] += data.get('合作博主数', 0)
@@ -1747,6 +1789,10 @@ class QianguaMcnDailyRankSpider:
             tags = data.get('标签', '')
             if tags:
                 tags_set.update(tags.split(','))
+
+        # 使用最小的排名（最靠前的排名）
+        if rank_numbers:
+            merged_data['机构排名'] = str(min(rank_numbers))
 
         # 合并标签
         merged_data['标签'] = ','.join(sorted(tags_set))
@@ -1919,7 +1965,8 @@ if __name__ == '__main__':
         processed_mcns = []
         mcn_groups = {
             '西西里/橙拉': ['西西里', '橙拉'],
-            '丁丁': ['集星文化', '尚世文化', '长沙丁丁', '明诚文化', '掌邦文化', '滕云文化', '鹿鼎文化', '丁游文化']
+            '丁丁': ['集星文化', '尚世文化', '长沙丁丁', '明诚文化', '掌邦文化', '滕云文化', '鹿鼎文化', '丁游文化'],
+            '初晨': ['每天传媒', '暖阳网络', '初晨']
         }
 
         used_mcns = set()  # 记录已经被使用的MCN

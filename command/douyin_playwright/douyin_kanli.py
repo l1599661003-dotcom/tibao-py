@@ -68,6 +68,10 @@ def load_config():
 
     # 解析配置
     return {
+        'PGY_LOGIN_CONFIG': {
+            'id': config.get('PGY_LOGIN', 'id'),
+            # 'page_size': config.get('PGY_LOGIN', 'page_size')
+        },
         'SCHEDULER_CONFIG': {
             'enable_scheduler': config.getboolean('SCHEDULER', 'enable_scheduler'),
             'daily_time': config.get('SCHEDULER', 'daily_time'),
@@ -78,6 +82,7 @@ def load_config():
 
 class DouYinSpider:
     def __init__(self):
+        self.config = load_config()
         self.setup_logger()
         # 设置logger属性
         self.logger = logger
@@ -146,6 +151,11 @@ class DouYinSpider:
                 self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
             self.common.random_sleep(3, 4)
+
+            # 添加验证码检测
+            if not self.check_and_handle_captcha():
+                self.logger.error("验证码处理失败")
+                return 0
 
             api_data_copy = dict(self.api_data)
             for api_url, response_info in api_data_copy.items():
@@ -817,10 +827,12 @@ class DouYinSpider:
                 gender = 2
             elif gender == 2:
                 gender = 1
+            province = response_data.get('province', '')
+            city = response_data.get('city', '')
             # 1. 基本信息
             self.kol_api_data['name'] = response_data.get('nick_name', '')
             self.kol_api_data['platform_user_id'] = response_data.get('id')
-            self.kol_api_data['location'] = response_data.get('city')
+            self.kol_api_data['location'] = f"{province}-{city}" if province else city
             self.kol_api_data['redId'] = response_data.get('short_id')
             self.kol_api_data['headPhoto'] = response_data.get('avatar_uri')
             self.kol_api_data['gender'] = gender
@@ -1686,7 +1698,9 @@ class DouYinSpider:
 def get_pending_kols() -> List[Dict[str, Any]]:
     """获取需要处理的KOL列表"""
     try:
-        api_url = f"https://tianji.fangpian999.com/api/admin/creatorBusiness/getNewerCreator?type=1&platform_id=2"
+        config = load_config()
+        page_id = config['PGY_LOGIN_CONFIG']['id']
+        api_url = f"https://tianji.fangpian999.com/api/admin/creatorBusiness/getNewerCreator?type=1&platform_id=2&page={page_id}&pageSize=480"
         headers = {"Content-Type": "application/json"}
 
         response = requests.post(api_url, headers=headers, timeout=30, verify=False)

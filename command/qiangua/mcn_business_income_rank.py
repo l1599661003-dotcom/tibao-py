@@ -401,7 +401,7 @@ class QianguaBusinessIncomeSpider:
             ''')
 
             if clicked:
-                self.human_delay(1.5, 2.5)
+                self.human_delay(3.0, 4.5)
                 return True
             else:
                 logger.warning(f"未找到第 {index + 1} 个条目")
@@ -433,7 +433,7 @@ class QianguaBusinessIncomeSpider:
                 return None, None
 
             logger.info("成功点击商业合作tab")
-            self.human_delay(1.5, 2.5)
+            self.human_delay(4.0, 6.0)
 
             # 记录点击按月按钮前的时间戳，用于过滤数据
             click_time = time.time()
@@ -459,6 +459,7 @@ class QianguaBusinessIncomeSpider:
                 return None, None
 
             logger.info("已点击按月按钮，等待 GetMcnNoteStat 接口响应...")
+            self.human_delay(3.5, 5.0)
 
             # 使用 wait_for_event 同步等待 GetMcnNoteStat 响应
             try:
@@ -505,6 +506,7 @@ class QianguaBusinessIncomeSpider:
                                 amount = data.get('Amount', 0)
                                 note_count = data.get('NoteCount', 0)
                                 logger.info(f"获取按月数据成功: Amount={amount}, NoteCount={note_count}")
+                                self.human_delay(2.5, 4.0)
                                 break
             logger.debug("=== 检查完成 ===")
 
@@ -712,6 +714,9 @@ class QianguaBusinessIncomeSpider:
                 # 记录点击时间，用于判断新数据
                 self.click_timestamp = int(time.time() * 1000)
 
+                # 添加人工延迟，等待页面响应
+                self.human_delay(4.0, 6.0)
+
                 # 清空 GetMcnRankData 相关的数据
                 keys_to_delete = [k for k in self.api_data.keys() if 'GetMcnRankData' in k]
                 for key in keys_to_delete:
@@ -812,7 +817,7 @@ class QianguaBusinessIncomeSpider:
                     else:
                         logger.warning(f"博主 {nickname} 未获取到按月数据")
 
-                    self.human_delay(1.0, 1.5)
+                    self.human_delay(3.0, 5.0)
 
                 except Exception as e:
                     logger.error(f"处理第 {index + 1} 个条目时出错: {str(e)}")

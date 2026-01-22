@@ -10,7 +10,7 @@ import cv2
 from loguru import logger
 from playwright.sync_api import sync_playwright
 import traceback
-from core.database_text_tibao_2 import session
+from core.localhost_tibao_3 import session
 from models.models_tibao import FpPgyInvitationsInfo, FpPgyInvitationsMessage
 from unitl.common import Common
 
@@ -55,11 +55,6 @@ def load_config():
 
     # 解析配置
     return {
-        'PGY_LOGIN_CONFIG': {
-            'email': config.get('PGY_LOGIN', 'email'),
-            'password': config.get('PGY_LOGIN', 'password'),
-            'base_url': config.get('PGY_LOGIN', 'base_url')
-        },
         'PGY_USER_ID': {
             'user_id': config.get('PGY_USER', 'user_id'),
         },
@@ -121,7 +116,7 @@ class PGYSpider:
         # 确保数据目录存在
         os.makedirs(self.data_dir, exist_ok=True)
 
-        self.base_url = self.config['PGY_LOGIN_CONFIG']['base_url']
+        self.base_url = 'https://pgy.xiaohongshu.com'
         self.is_logged_in = False
         self.api_data = {}  # 存储API数据
         self.current_user_data = {}
@@ -303,7 +298,7 @@ class PGYSpider:
             self.page.goto(page_url)
 
             try:
-                self.page.wait_for_load_state('networkidle', timeout=10000)
+                self.page.wait_for_load_state('networkidle', timeout=5000)
             except Exception as e:
                 logger.error(f"等待页面加载完成时出错: {str(e)}")
 
@@ -449,7 +444,7 @@ class PGYSpider:
                 self.common.random_sleep(25, 35)
                 # 等待页面加载完成
                 try:
-                    self.page.wait_for_load_state('networkidle', timeout=10000)
+                    self.page.wait_for_load_state('networkidle', timeout=5000)
                 except Exception as e:
                     logger.error(f"等待页面加载完成时出错: {str(e)}")
 
@@ -681,7 +676,7 @@ class PGYSpider:
 
             # 等待页面网络空闲
             try:
-                self.page.wait_for_load_state('networkidle', timeout=10000)
+                self.page.wait_for_load_state('networkidle', timeout=5000)
             except Exception as e:
                 logger.warning(f"等待网络空闲时出错: {str(e)}")
 
@@ -798,7 +793,8 @@ class PGYSpider:
             target_apis = [
                 'api/adsmessage/solar/message/list',
                 'api/solar/user/info',
-                'api/solar/invite/get_invite_info'
+                'api/solar/invite/get_invite_info',
+                'get_invites_overview'
             ]
 
             # 检查是否是目标API
@@ -924,7 +920,7 @@ class PGYSpider:
 
             # 等待页面网络空闲
             try:
-                self.page.wait_for_load_state('networkidle', timeout=10000)
+                self.page.wait_for_load_state('networkidle', timeout=5000)
             except Exception as e:
                 logger.warning(f"等待网络空闲时出错: {str(e)}")
 
@@ -1070,6 +1066,145 @@ class PGYSpider:
             logger.error(f"检查消息是否存在时出错: {str(e)}")
             return False
 
+    def scrape_invites_overview(self):
+        """抓取邀约概览数据"""
+        try:
+            if not self.is_logged_in:
+                logger.error("未登录状态，无法抓取数据")
+                return None
+
+            # 访问页面
+            page_url = "https://pgy.xiaohongshu.com/solar/infra/mcn/deals/mcn-operate-center"
+            logger.info(f"开始访问邀约概览页面: {page_url}")
+
+            self.page.goto(page_url)
+            self.common.random_sleep(5, 8)
+
+            try:
+                self.page.wait_for_load_state('networkidle', timeout=5000)
+            except Exception as e:
+                logger.error(f"等待页面加载完成时出错: {str(e)}")
+
+            # 开始分页处理
+            page_count = 0
+            max_pages = 50  # 最大处理页数，防止无限循环
+
+            while page_count < max_pages:
+                page_count += 1
+                logger.info(f"正在处理邀约概览第 {page_count} 页")
+
+                # 等待API响应
+                self.common.random_sleep(3, 5)
+
+                # 处理当前页的API数据
+                if self.api_data:
+                    api_data_copy = dict(self.api_data)
+                    for api_url, response_data in api_data_copy.items():
+                        if 'get_invites_overview' in api_url and 'data' in response_data:
+                            try:
+                                data = response_data['data']
+                                if data.get('code') == 0 and 'data' in data:
+                                    api_data = data['data']
+                                    invites_list = api_data.get('invites', [])
+
+                                    saved_count = 0
+                                    duplicate_count = 0
+
+                                    for invite in invites_list:
+                                        invite_id = invite.get('inviteId', '')
+                                        kol_id = invite.get('kolId', '')
+                                        kol_name = invite.get('kolName', '')
+                                        brand_name = invite.get('cooperateBrandName', '')
+                                        product_name = invite.get('productName', '')
+                                        invite_create_time = invite.get('inviteCreateTime', '')
+
+                                        # 检查是否已存在相同的记录
+                                        existing_record = session.query(FpPgyInvitationsMessage).filter(
+                                            FpPgyInvitationsMessage.platform_message_id == invite_id
+                                        ).first()
+
+                                        if existing_record:
+                                            duplicate_count += 1
+                                            logger.debug(f"邀约记录已存在: invite_id={invite_id}")
+                                            continue
+
+                                        # 构建content内容
+                                        content = f"品牌: {brand_name}, 产品: {product_name}, 博主: {kol_name}"
+
+                                        # 保存到数据库，status为0
+                                        new_message = FpPgyInvitationsMessage(
+                                            platform_user_id=self.config['PGY_USER_ID']['user_id'],
+                                            platform_message_id=invite_id,
+                                            platform_kol_id=kol_id,
+                                            platform_nickname=kol_name,
+                                            platform_content=content,
+                                            status=0,
+                                            created_at=datetime.now()
+                                        )
+
+                                        session.add(new_message)
+                                        session.commit()
+                                        saved_count += 1
+                                        logger.info(f"保存邀约记录: invite_id={invite_id}, kol_name={kol_name}, brand={brand_name}")
+
+                                    logger.info(f"第 {page_count} 页统计: 保存 {saved_count} 个, 重复 {duplicate_count} 个")
+
+                                    # 检查是否有新数据保存
+                                    if saved_count == 0:
+                                        logger.info(f"第 {page_count} 页没有新数据，停止翻页")
+                                        return
+
+                            except Exception as e:
+                                logger.error(f"处理第 {page_count} 页邀约概览数据时出错: {str(e)}")
+                                continue
+                else:
+                    logger.warning(f"第 {page_count} 页没有获取到邀约概览API数据")
+
+                # 清空当前页的API数据，准备处理下一页
+                self.api_data.clear()
+
+                # 尝试点击下一页（查找MCN运营中心的分页按钮）
+                try:
+                    # 查找下一页按钮 - 这里需要根据实际页面的分页按钮选择器来定位
+                    next_page_button = self.page.locator("div.d-pagination div.d-pagination-page:has(span svg path[d='M19 12L31 24L19 36'])").first
+
+                    # 检查按钮是否存在且可见
+                    if not next_page_button.is_visible(timeout=3000):
+                        logger.info("未找到下一页按钮，可能已到最后一页")
+                        break
+
+                    # 检查按钮是否被禁用
+                    button_class = next_page_button.get_attribute("class") or ""
+                    if "disabled" in button_class:
+                        logger.info("下一页按钮被禁用，确认已到最后一页")
+                        break
+
+                    # 点击下一页按钮
+                    logger.info("点击下一页按钮")
+                    next_page_button.click()
+
+                    # 等待页面加载和新的API响应
+                    self.common.random_sleep(3, 5)
+
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                    except Exception as e:
+                        logger.warning(f"等待网络空闲时出错: {str(e)}")
+
+                except Exception as e:
+                    logger.error(f"点击下一页时出错: {str(e)}")
+                    break
+
+            logger.info(f"邀约概览分页处理完成，共处理了 {page_count} 页")
+
+        except Exception as e:
+            logger.error(f"抓取邀约概览数据时出错: {str(e)}")
+            logger.error(f"错误详情: {traceback.format_exc()}")
+            session.rollback()
+        finally:
+            # 确保会话被正确处理
+            session.close()
+
 def serialize_record(record):
     """
     序列化SQLAlchemy记录对象为字典
@@ -1168,7 +1303,16 @@ def run_spider_task():
                     logger.error(f"❌ scrape_user_notes 执行失败: {str(e)}")
                     logger.error(f"错误详情: {traceback.format_exc()}")
                     # 继续执行下一个任务，不中断整个循环
-                
+
+                time.sleep(20)
+                # 执行邀约概览抓取任务
+                try:
+                    spider.scrape_invites_overview()
+                except Exception as e:
+                    logger.error(f"❌ scrape_invites_overview 执行失败: {str(e)}")
+                    logger.error(f"错误详情: {traceback.format_exc()}")
+                    # 继续执行下一个任务，不中断整个循环
+
                 time.sleep(20)
                 # 执行第二阶段的抓取任务
                 try:

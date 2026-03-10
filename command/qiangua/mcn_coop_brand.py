@@ -14,7 +14,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 import random
 from sqlalchemy.exc import SQLAlchemyError
 
-from core.localhost_fp_project import session
+from core.localhost_fp_project import Session  # 使用Session工厂而不是全局session
 from models.models import QgBloggerRank, QgBrandInfo, QgNoteInfo
 
 """
@@ -30,6 +30,8 @@ class QianguaMcnRankSpider:
         self.is_logged_in = False
         self.api_data = {}
         self.current_organization = None
+        self.current_blogger_id = None  # 新增:当前处理的blogger_id
+        self.mcn_blogger_id_map = []  # 新增:记录搜索结果列表中每个机构对应的blogger_id
         self.cookie_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cookies.json')
         self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mcn_rank_config.ini')
         self.load_config()
@@ -90,7 +92,7 @@ class QianguaMcnRankSpider:
         self.playwright = sync_playwright().start()
         # 使用本地Chrome浏览器并指定用户数据目录
         # 这样可以使用你的Chrome配置,避免滑块验证
-        user_data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chrome_user_data')
+        user_data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'xiaohongshu_notes', 'chrome_user_data')
         os.makedirs(user_data_dir, exist_ok=True)
 
         self.context = self.playwright.chromium.launch_persistent_context(
@@ -164,22 +166,22 @@ class QianguaMcnRankSpider:
             self.page.click("text=登录/注册")
             self.human_delay(1.5, 2.5)
 
-            self.page.click("text=手机登录")
-            self.human_delay(1.5, 2.5)
-
-            # 输入账号密码
-            self.page.fill("input[placeholder='请输入手机号']", '13151572333')
-            self.human_delay(1.0, 1.8)
-            self.page.fill("input[placeholder='请输入登录密码']", '12345678abc')
-            self.human_delay(1.0, 1.8)
-
-            # 勾选协议
-            self.page.click('.el-checkbox__inner')
-            self.human_delay(0.8, 1.4)
-
-            # 点击登录按钮
-            self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
-            self.human_delay(1.0, 2.0)
+            # self.page.click("text=手机登录")
+            # self.human_delay(1.5, 2.5)
+            #
+            # # 输入账号密码
+            # self.page.fill("input[placeholder='请输入手机号']", '13151572333')
+            # self.human_delay(1.0, 1.8)
+            # self.page.fill("input[placeholder='请输入登录密码']", '12345678abc')
+            # self.human_delay(1.0, 1.8)
+            #
+            # # 勾选协议
+            # self.page.click('.el-checkbox__inner')
+            # self.human_delay(0.8, 1.4)
+            #
+            # # 点击登录按钮
+            # self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
+            # self.human_delay(1.0, 2.0)
 
             # 等待滑块出现并提示用户
             logger.info("已点击登录按钮,等待滑块验证...")
@@ -282,15 +284,20 @@ class QianguaMcnRankSpider:
             logger.error(f"保存cookies时出错: {str(e)}")
 
     def save_rank_data_to_db(self, org_name, min_timestamp=None):
-        """处理MCN排行数据写入数据库"""
+        """处理MCN排行数据写入数据库 - 使用新session确保连接有效,根据McnUserId避免重复,返回blogger_id列表"""
+        db_session = None
         try:
+            # 创建新的session，确保连接是新鲜的
+            db_session = Session()
+
             rank_entries = self.api_data.get('GetMcnRankData', [])
             if not rank_entries:
                 logger.warning(f"未捕获机构 {org_name} 的MCN排行数据,跳过入库")
-                return False
+                return []
 
             inserted = 0
             updated = 0
+            blogger_ids = []  # 用于存储所有blogger_id,按顺序
 
             processed_entries = []
             min_ts = 0
@@ -319,6 +326,10 @@ class QianguaMcnRankSpider:
                     continue
 
                 for item in item_list:
+                    mcn_user_id = item.get('McnUserId')
+                    if not mcn_user_id:
+                        logger.warning(f"跳过没有McnUserId的记录: {item.get('NickName')}")
+                        continue
 
                     tags_text = item.get('BloggerTags')
                     if not tags_text:
@@ -344,7 +355,7 @@ class QianguaMcnRankSpider:
                         'rank_value': item.get('RankValue') or 0,
                         'rank_value_attach': item.get('RankValueAttach') or 0,
                         'increase_rank_value': increase_value_decimal,
-                        'mcn_user_id': item.get('McnUserId'),
+                        'mcn_user_id': mcn_user_id,
                         'small_avatar': item.get('SmallAvatar'),
                         'blogger_tags': tags_text,
                         'blogger_count': item.get('BloggerCount') or 0,
@@ -357,43 +368,82 @@ class QianguaMcnRankSpider:
                         'current_user_is_favorite': 1 if item.get('CurrentUserIsFavorite') else 0,
                     }
 
-                    record = session.query(QgBloggerRank).filter(QgBloggerRank.nickname == item.get('NickName')).first()
+                    # 根据mcn_user_id查询是否存在
+                    record = db_session.query(QgBloggerRank).filter(
+                        QgBloggerRank.mcn_user_id == mcn_user_id
+                    ).first()
 
                     if record:
+                        # 已存在,更新记录
                         for field, value in payload.items():
                             setattr(record, field, value)
                         updated += 1
+                        blogger_id = record.id  # 使用现有的id
+                        logger.info(f"更新已存在的MCN记录: {item.get('NickName')}, blogger_id={blogger_id}")
                     else:
-                        session.add(QgBloggerRank(**payload))
+                        # 不存在,新增记录
+                        new_blogger = QgBloggerRank(**payload)
+                        db_session.add(new_blogger)
+                        db_session.flush()  # 立即flush以获取新插入的id
+                        blogger_id = new_blogger.id
                         inserted += 1
+                        logger.info(f"新增MCN记录: {item.get('NickName')}, blogger_id={blogger_id}")
+
+                    # 将blogger_id按顺序添加到列表
+                    blogger_ids.append(blogger_id)
 
                 processed_entries.append(entry)
 
             if inserted or updated:
-                session.commit()
+                db_session.commit()
                 logger.info(
-                    f"机构 {org_name or '未知机构'} 笔记数据写入数据库完成: 新增 {inserted} 条, 更新 {updated} 条"
+                    f"机构 {org_name or '未知机构'} 排行数据写入数据库完成: 新增 {inserted} 条, 更新 {updated} 条, 共 {len(blogger_ids)} 个blogger_id"
                 )
             else:
-                logger.info(f"机构 {org_name or '未知机构'} 笔记数据无更新,跳过提交")
+                logger.info(f"机构 {org_name or '未知机构'} 排行数据无更新,跳过提交")
 
             for entry in processed_entries:
                 entry['processed'] = True
 
-            self.api_data['GetMcnBrandNoteList'] = [entry for entry in note_entries if not entry.get('processed')]
-            return inserted > 0 or updated > 0
+            self.api_data['GetMcnRankData'] = [entry for entry in rank_entries if not entry.get('processed')]
+
+            # 返回blogger_id列表
+            return blogger_ids
+
         except SQLAlchemyError as db_err:
-            session.rollback()
+            if db_session:
+                try:
+                    db_session.rollback()
+                except:
+                    logger.warning("回滚失败，session可能已失效")
             logger.error(f"机构 {org_name} 排行数据入库失败: {db_err}")
-            return False
+            return []
         except Exception as e:
-            session.rollback()
+            if db_session:
+                try:
+                    db_session.rollback()
+                except:
+                    logger.warning("回滚失败，session可能已失效")
             logger.error(f"机构 {org_name} 排行数据处理异常: {str(e)}")
-            return False
+            return []
+        finally:
+            # 确保session被正确关闭
+            if db_session:
+                db_session.close()
+                logger.debug("数据库session已关闭")
 
     def save_brand_data_to_db(self, org_name, year_month):
-        """处理品牌列表数据写入数据库"""
+        """处理品牌列表数据写入数据库 - 使用新session确保连接有效"""
+        db_session = None
         try:
+            # 创建新的session，确保连接是新鲜的
+            db_session = Session()
+
+            # 检查是否有有效的blogger_id
+            if not self.current_blogger_id:
+                logger.error(f"未找到机构 {org_name} 的blogger_id,无法保存品牌数据")
+                return False
+
             brand_entries = self.api_data.get('GetMcnBrandList', [])
             if not brand_entries:
                 logger.warning(f"未捕获机构 {org_name} 的品牌数据,跳过入库")
@@ -423,10 +473,10 @@ class QianguaMcnRankSpider:
                         amount_value = int(amount_value) if amount_value is not None else 0
                     except (TypeError, ValueError):
                         amount_value = 0
-                    blogger = session.query(QgBloggerRank).filter(QgBloggerRank.nickname == org_name).first()
 
+                    # 使用self.current_blogger_id
                     payload = {
-                        'blogger_id': blogger.id,
+                        'blogger_id': self.current_blogger_id,
                         'month': year_month,
                         'brand_id': brand_id,
                         'brand_id_key': item.get('BrandIdKey'),
@@ -439,24 +489,26 @@ class QianguaMcnRankSpider:
                         'amount': amount_value,
                     }
 
-                    record = session.query(QgBrandInfo).filter(QgBrandInfo.brand_id == brand_id,
-                                                               QgBrandInfo.blogger_id == blogger.id,
-                                                                QgBrandInfo.month == year_month
-                                                               ).first()
+                    record = db_session.query(QgBrandInfo).filter(
+                        QgBrandInfo.brand_id == brand_id,
+                        QgBrandInfo.blogger_id == self.current_blogger_id,
+                        QgBrandInfo.month == year_month
+                    ).first()
+
                     if record:
                         for field, value in payload.items():
                             setattr(record, field, value)
                         updated += 1
                     else:
-                        session.add(QgBrandInfo(**payload))
+                        db_session.add(QgBrandInfo(**payload))
                         inserted += 1
 
                 processed_entries.append(entry)
 
             if inserted or updated:
-                session.commit()
+                db_session.commit()
                 logger.info(
-                    f"机构 {org_name} 品牌数据写入数据库完成: 新增 {inserted} 条, 更新 {updated} 条"
+                    f"机构 {org_name} (blogger_id={self.current_blogger_id}) 品牌数据写入数据库完成: 新增 {inserted} 条, 更新 {updated} 条"
                 )
             else:
                 logger.info(f"机构 {org_name} 品牌数据无更新,跳过提交")
@@ -466,14 +518,28 @@ class QianguaMcnRankSpider:
 
             self.api_data['GetMcnBrandList'] = [entry for entry in brand_entries if not entry.get('processed')]
             return inserted > 0 or updated > 0
+
         except SQLAlchemyError as db_err:
-            session.rollback()
+            if db_session:
+                try:
+                    db_session.rollback()
+                except:
+                    logger.warning("回滚失败，session可能已失效")
             logger.error(f"机构 {org_name} 品牌数据入库失败: {db_err}")
             return False
         except Exception as e:
-            session.rollback()
+            if db_session:
+                try:
+                    db_session.rollback()
+                except:
+                    logger.warning("回滚失败，session可能已失效")
             logger.error(f"机构 {org_name} 品牌数据处理异常: {str(e)}")
             return False
+        finally:
+            # 确保session被正确关闭
+            if db_session:
+                db_session.close()
+                logger.debug("数据库session已关闭")
 
     def load_cookies(self):
         """从文件加载cookies"""
@@ -606,8 +672,18 @@ class QianguaMcnRankSpider:
                         break
                     time.sleep(0.2)
 
-            self.save_rank_data_to_db(org_name, min_timestamp=search_start_ts)
-            return True
+            # 保存排行数据到数据库,获取blogger_id列表
+            blogger_ids = self.save_rank_data_to_db(org_name, min_timestamp=search_start_ts)
+            if blogger_ids:
+                # 存储blogger_id列表,用于后续按索引获取
+                self.mcn_blogger_id_map = blogger_ids
+                logger.info(f"获取到机构 {org_name} 的 {len(blogger_ids)} 个blogger_id: {blogger_ids}")
+                return True
+            else:
+                logger.warning(f"未能获取机构 {org_name} 的blogger_id")
+                self.mcn_blogger_id_map = []
+                return False
+
         except Exception as e:
             logger.error(f"搜索机构 {org_name} 时出错: {str(e)}")
             return False
@@ -1155,8 +1231,6 @@ class QianguaMcnRankSpider:
             # 统计本次滚动总共获取的API数据
             total_api_count = len(self.api_data.get('GetMcnBrandList', []))
             logger.info(f"滚动完成,共滚动 {scroll_count} 次,获取 {total_api_count} 次GetMcnBrandList接口数据")
-            total_api_count = len(self.api_data.get('GetMcnBrandList', []))
-            logger.info(f"滚动完成,共滚动 {scroll_count} 次,获取 {total_api_count} 次GetMcnBrandList接口数据")
 
             final_count = self.page.evaluate('''
                 () => {
@@ -1193,15 +1267,21 @@ class QianguaMcnRankSpider:
 
             # 循环处理每个机构
             for mcn_index in range(min(mcn_count, 5)):
-                if org_name == '方片' and mcn_index < 4:
-                    logger.error(f"跳过处理 {org_name} 机构")
-                    mcn_index += 1
-                    continue
+                # if org_name == '方片' and mcn_index < 4:
+                #     logger.info(f"跳过处理 {org_name} 机构的前 {mcn_index + 1} 个")
+                #     continue
                 # if org_name == '方片母婴' or org_name == '方片新媒体':
-                #     logger.error(f"跳过处理 {org_name} 机构")
-                #     mcn_index += 1
+                #     logger.info(f"跳过处理 {org_name} 机构")
                 #     continue
                 logger.info(f"处理第 {mcn_index + 1}/{mcn_count} 个机构")
+
+                # 设置当前处理的blogger_id (从mcn_blogger_id_map中按索引获取)
+                if mcn_index < len(self.mcn_blogger_id_map):
+                    self.current_blogger_id = self.mcn_blogger_id_map[mcn_index]
+                    logger.info(f"使用blogger_id={self.current_blogger_id} 处理第 {mcn_index + 1} 个机构")
+                else:
+                    logger.warning(f"未找到第 {mcn_index + 1} 个机构的blogger_id,跳过")
+                    continue
 
                 # 点击机构
                 if not self.click_mcn_item(mcn_index):

@@ -17,6 +17,195 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 """
 
 
+
+
+def load_last_mcn_selection():
+    """加载上次选择的MCN"""
+    try:
+        # 临时使用相对路径获取目录
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        config_file = os.path.join(base_dir, 'last_mcn_selection.json')
+        if os.path.exists(config_file):
+            with open(config_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get('selected_mcns', [])
+    except Exception as e:
+        print(f"加载上次MCN选择失败: {e}")
+    return []
+
+
+def save_last_mcn_selection(selected_mcns):
+    """保存本次选择的MCN"""
+    try:
+        # 临时使用相对路径获取目录
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        config_file = os.path.join(base_dir, 'last_mcn_selection.json')
+        with open(config_file, 'w', encoding='utf-8') as f:
+            json.dump({'selected_mcns': selected_mcns}, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"保存MCN选择失败: {e}")
+
+
+def show_use_last_selection_dialog():
+    """显示是否使用上次选择的对话框"""
+    last_selection = load_last_mcn_selection()
+
+    if not last_selection:
+        return None
+
+    result = {'use_last': False}
+
+    def on_yes():
+        """使用上次选择"""
+        result['use_last'] = True
+        root.quit()
+        root.destroy()
+
+    def on_no():
+        """不使用上次选择"""
+        result['use_last'] = False
+        root.quit()
+        root.destroy()
+
+    def on_close():
+        """关闭窗口"""
+        root.quit()
+        root.destroy()
+        sys.exit(0)
+
+    # 创建主窗口
+    root = tk.Tk()
+    root.title("千瓜MCN数据抓取 - 使用上次选择")
+    root.geometry("650x520")
+    root.configure(bg='#f5f5f5')
+    root.protocol("WM_DELETE_WINDOW", on_close)
+
+    # 创建顶部标题区域
+    title_frame = tk.Frame(root, bg='#2196F3', height=80)
+    title_frame.pack(fill='x')
+    title_frame.pack_propagate(False)
+
+    title_label = tk.Label(
+        title_frame,
+        text="💡 使用上次选择?",
+        font=("Microsoft YaHei UI", 18, "bold"),
+        bg='#2196F3',
+        fg='white'
+    )
+    title_label.pack(pady=20)
+
+    # 创建说明标签
+    instruction_frame = tk.Frame(root, bg='#f5f5f5')
+    instruction_frame.pack(pady=20)
+
+    instruction_label = tk.Label(
+        instruction_frame,
+        text="检测到上次选择的机构数据",
+        font=("Microsoft YaHei UI", 14),
+        bg='#f5f5f5',
+        fg='#333'
+    )
+    instruction_label.pack()
+
+    hint_label = tk.Label(
+        instruction_frame,
+        text="是否继续使用上次选择的机构?",
+        font=("Microsoft YaHei UI", 12),
+        bg='#f5f5f5',
+        fg='#666'
+    )
+    hint_label.pack(pady=10)
+
+    # 显示上次选择的内容
+    list_frame = tk.Frame(root, bg='#f5f5f5')
+    list_frame.pack(pady=10, fill='x', padx=30)
+
+    list_label = tk.Label(
+        list_frame,
+        text="📋 上次选择的机构:",
+        font=("Microsoft YaHei UI", 11, "bold"),
+        bg='#f5f5f5',
+        fg='#333'
+    )
+    list_label.pack(anchor='w', pady=(0, 5))
+
+    list_text = tk.Text(
+        list_frame,
+        height=6,
+        state='normal',
+        font=("Microsoft YaHei UI", 10),
+        bg='#FFF9C4',
+        relief='solid',
+        bd=1,
+        wrap='word'
+    )
+    list_text.pack(fill='x')
+    list_text.insert(1.0, f"共 {len(last_selection)} 个:\n\n" + ' → '.join(last_selection))
+    list_text.config(state='disabled')
+
+    # 创建按钮容器
+    button_frame = tk.Frame(root, bg='#f5f5f5')
+    button_frame.pack(pady=20)
+
+    # 创建"是"按钮
+    yes_btn = tk.Button(
+        button_frame,
+        text="✓ 是,使用上次选择",
+        width=18,
+        height=2,
+        font=("Microsoft YaHei UI", 11, "bold"),
+        bg='#4CAF50',
+        fg='white',
+        relief='raised',
+        bd=0,
+        cursor='hand2',
+        activebackground='#388E3C',
+        command=on_yes
+    )
+    yes_btn.pack(side='left', padx=15)
+
+    # 创建"否"按钮
+    no_btn = tk.Button(
+        button_frame,
+        text="✗ 否,重新选择",
+        width=18,
+        height=2,
+        font=("Microsoft YaHei UI", 11, "bold"),
+        bg='#FF9800',
+        fg='white',
+        relief='raised',
+        bd=0,
+        cursor='hand2',
+        activebackground='#F57C00',
+        command=on_no
+    )
+    no_btn.pack(side='left', padx=15)
+
+    # 居中显示窗口
+    root.update_idletasks()
+    width = root.winfo_width()
+    height = root.winfo_height()
+    x = (root.winfo_screenwidth() // 2) - (width // 2)
+    y = (root.winfo_screenheight() // 2) - (height // 2)
+    root.geometry(f'{width}x{height}+{x}+{y}')
+
+    # 运行主循环
+    root.mainloop()
+
+    if result['use_last']:
+        return last_selection
+    else:
+        return None
+
+
 def show_mcn_selection_dialog():
     """显示MCN选择对话框"""
     mcn_names = [
@@ -886,18 +1075,7 @@ def get_base_dir():
         # 如果是Python脚本，使用脚本所在目录
         base = os.path.dirname(os.path.abspath(__file__))
 
-    # 检查路径是否包含中文字符，如果包含则使用临时目录
-    try:
-        # 尝试编码为ASCII，如果失败说明包含中文
-        base.encode('ascii')
-        return base
-    except UnicodeEncodeError:
-        # 包含中文，使用用户的临时目录下的英文路径
-        import tempfile
-        temp_base = os.path.join(tempfile.gettempdir(), 'qiangua_mcn_spider')
-        os.makedirs(temp_base, exist_ok=True)
-        print(f"警告: 检测到程序路径包含中文字符，使用临时目录: {temp_base}")
-        return temp_base
+    return base
 
 
 class QianguaMcnDailyRankSpider:
@@ -995,81 +1173,47 @@ class QianguaMcnDailyRankSpider:
             logger.debug(f"模拟延时失败: {e}, 使用默认1秒")
             time.sleep(1)
 
-    def find_chrome_executable(self):
-        """查找Chrome可执行文件路径"""
-        # 常见的Chrome安装路径
-        possible_paths = [
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-            os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe"),
-            r"D:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"D:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-            r"E:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"E:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-        ]
-
-        # 检查每个可能的路径
-        for path in possible_paths:
-            if os.path.exists(path):
-                logger.info(f"找到Chrome浏览器: {path}")
-                return path
-
-        # 如果都没找到，尝试从注册表读取（Windows）
-        try:
-            import winreg
-            # 尝试从注册表获取Chrome路径
-            key_paths = [
-                r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
-                r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
-            ]
-
-            for key_path in key_paths:
-                try:
-                    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path)
-                    chrome_path, _ = winreg.QueryValueEx(key, "")
-                    winreg.CloseKey(key)
-                    if os.path.exists(chrome_path):
-                        logger.info(f"从注册表找到Chrome浏览器: {chrome_path}")
-                        return chrome_path
-                except WindowsError:
-                    continue
-        except Exception as e:
-            logger.debug(f"从注册表读取Chrome路径失败: {e}")
-
-        # 如果还是没找到，返回None
-        logger.error("未找到Chrome浏览器，请确保已安装Google Chrome")
-        return None
-
     def setup_browser(self):
         """初始化浏览器"""
+        # 设置playwright浏览器路径，支持exe打包
+        if hasattr(sys, '_MEIPASS'):
+            # exe环境下，使用exe文件所在目录的ms-playwright（不是临时解压目录）
+            exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            playwright_browsers_path = os.path.join(exe_dir, 'ms-playwright')
+        else:
+            # 开发环境下，使用当前目录同级的ms-playwright
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            playwright_browsers_path = os.path.join(current_dir, 'ms-playwright')
+
+        # 设置环境变量
+        if os.path.exists(playwright_browsers_path):
+            os.environ['PLAYWRIGHT_BROWSERS_PATH'] = playwright_browsers_path
+            logger.info(f"使用自定义浏览器路径: {playwright_browsers_path}")
+        else:
+            logger.warning(f"未找到自定义浏览器路径: {playwright_browsers_path}，将使用系统默认路径")
+
         self.playwright = sync_playwright().start()
-        user_data_dir = os.path.join(self.base_dir, 'chrome_user_data')
-        os.makedirs(user_data_dir, exist_ok=True)
 
-        # 查找Chrome可执行文件
-        chrome_path = self.find_chrome_executable()
-
-        if not chrome_path:
-            logger.error("无法找到Chrome浏览器，程序将退出")
-            logger.error("请安装Google Chrome浏览器，或检查Chrome是否安装在标准路径")
-            sys.exit(1)
-
-        self.context = self.playwright.chromium.launch_persistent_context(
-            user_data_dir,
+        # 使用Playwright内置的Chromium浏览器
+        self.browser = self.playwright.chromium.launch(
             headless=False,
-            channel="chrome",
-            executable_path=chrome_path,
-            no_viewport=True,
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             args=[
                 '--disable-blink-features=AutomationControlled',
                 '--no-sandbox',
                 '--disable-web-security',
+                '--disable-dev-shm-usage',
                 '--start-maximized',
+                '--kiosk',  # 全屏模式
             ]
         )
-        self.browser = None
-        self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
+
+        # 创建上下文 - 不设置viewport以使用全屏
+        self.context = self.browser.new_context(
+            no_viewport=True,  # 禁用固定viewport,使用全屏
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        )
+
+        self.page = self.context.new_page()
         self.page.set_default_timeout(20000)
         self.page.on("response", self._handle_api_response)
 
@@ -1116,34 +1260,34 @@ class QianguaMcnDailyRankSpider:
         """执行登录操作"""
         try:
             logger.info("开始登录...")
-            self.page.click("text=登录/注册")
-            self.human_delay(1.5, 2.5)
-
-            self.page.click("text=手机登录")
-            self.human_delay(1.5, 2.5)
-
-            # 输入账号密码
-            self.page.fill("input[placeholder='请输入手机号']", '13151572333')
-            self.human_delay(1.0, 1.8)
-            self.page.fill("input[placeholder='请输入登录密码']", '12345678abc')
-            self.human_delay(1.0, 1.8)
-
-            # 勾选协议
-            self.page.click('.el-checkbox__inner')
-            self.human_delay(0.8, 1.4)
-
-            # 点击登录按钮
-            self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
-            self.human_delay(1.0, 2.0)
-
-            logger.info("已点击登录按钮,等待滑块验证...")
-            logger.info("请手动完成滑块验证并点击登录!")
-            self.human_delay(1.5, 2.5)
+            # self.page.click("text=登录/注册")
+            # self.human_delay(1.5, 2.5)
+            #
+            # self.page.click("text=手机登录")
+            # self.human_delay(1.5, 2.5)
+            #
+            # # 输入账号密码
+            # self.page.fill("input[placeholder='请输入手机号']", '13151572333')
+            # self.human_delay(1.0, 1.8)
+            # self.page.fill("input[placeholder='请输入登录密码']", '12345678abc')
+            # self.human_delay(1.0, 1.8)
+            #
+            # # 勾选协议
+            # self.page.click('.el-checkbox__inner')
+            # self.human_delay(0.8, 1.4)
+            #
+            # # 点击登录按钮
+            # self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
+            # self.human_delay(1.0, 2.0)
+            #
+            # logger.info("已点击登录按钮,等待滑块验证...")
+            # logger.info("请手动完成滑块验证并点击登录!")
+            # self.human_delay(1.5, 2.5)
 
             # 等待用户手动完成滑块验证和登录
             logger.info("等待用户手动完成滑块验证和登录(最多等待60秒)...")
             wait_time = 0
-            max_wait_time = 60
+            max_wait_time = 300
 
             while wait_time < max_wait_time:
                 try:
@@ -1933,14 +2077,19 @@ class QianguaMcnDailyRankSpider:
                 except:
                     pass
 
-            # 使用persistent context时,直接关闭context即可
+            # 关闭页面
+            if hasattr(self, 'page') and self.page:
+                self.page.close()
+
+            # 关闭上下文
             if hasattr(self, 'context') and self.context:
                 self.context.close()
 
-            # persistent context不需要单独关闭browser
+            # 关闭浏览器
             if hasattr(self, 'browser') and self.browser:
                 self.browser.close()
 
+            # 停止playwright
             if hasattr(self, 'playwright') and self.playwright:
                 self.playwright.stop()
 
@@ -1951,9 +2100,20 @@ class QianguaMcnDailyRankSpider:
 
 if __name__ == '__main__':
     while True:
-        # 显示MCN选择对话框
-        logger.info("显示MCN选择对话框...")
-        selected_mcns = show_mcn_selection_dialog()
+        # 先询问是否使用上次选择
+        logger.info("检查上次选择的MCN...")
+        last_mcns = show_use_last_selection_dialog()
+
+        if last_mcns:
+            # 使用上次选择
+            selected_mcns = last_mcns
+            logger.info(f"使用上次选择的MCN: {selected_mcns}")
+        else:
+            # 显示MCN选择对话框
+            logger.info("显示MCN选择对话框...")
+            selected_mcns = show_mcn_selection_dialog()
+            # 保存本次选择
+            save_last_mcn_selection(selected_mcns)
 
         if not selected_mcns:
             logger.warning("未选择任何MCN机构，程序退出")

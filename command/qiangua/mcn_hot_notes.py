@@ -1,24 +1,18 @@
 import time
 import json
 import os
-from datetime import datetime
-import signal
-import sys
 import configparser
-import calendar
-from decimal import Decimal
 
-import schedule
 from loguru import logger
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 import random
 from sqlalchemy.exc import SQLAlchemyError
 
 from core.localhost_fp_project import session
-from models.models import QgBloggerRank, QgBrandInfo, QgNoteInfo
+from models.models import QgCompanyNoteInfo
 
 """
-    获取千瓜MCN商业收入榜数据
+    获取千瓜MCN商业合作下面的笔记
 """
 
 
@@ -32,6 +26,7 @@ class QianguaMcnRankSpider:
         self.current_organization = None
         self.cookie_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cookies.json')
         self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mcn_rank_config.ini')
+        self.xhs_logged_in = False  # 小红书登录状态标记
         self.load_config()
         self.setup_browser()
 
@@ -84,13 +79,22 @@ class QianguaMcnRankSpider:
             logger.debug(f"模拟延时失败: {e}, 使用默认1秒")
             time.sleep(1)
 
+    @staticmethod
+    def normalize_title(title):
+        """标准化标题，用于匹配"""
+        if not title:
+            return ''
+        # 去除所有空白字符（空格、换行、制表符等）并转为小写
+        import re
+        normalized = re.sub(r'\s+', '', title.strip())
+        return normalized
+
     """初始化浏览器"""
 
     def setup_browser(self):
         self.playwright = sync_playwright().start()
-        # 使用本地Chrome浏览器并指定用户数据目录
-        # 这样可以使用你的Chrome配置,避免滑块验证
-        user_data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chrome_user_data')
+        # 使用小红书的chrome_user_data目录，共享登录状态
+        user_data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'xiaohongshu_notes', 'chrome_user_data')
         os.makedirs(user_data_dir, exist_ok=True)
 
         self.context = self.playwright.chromium.launch_persistent_context(
@@ -161,35 +165,35 @@ class QianguaMcnRankSpider:
         """执行登录操作"""
         try:
             logger.info("开始登录...")
-            self.page.click("text=登录/注册")
-            self.human_delay(1.5, 2.5)
-
-            self.page.click("text=手机登录")
-            self.human_delay(1.5, 2.5)
-
-            # 输入账号密码
-            self.page.fill("input[placeholder='请输入手机号']", '13151572333')
-            self.human_delay(1.0, 1.8)
-            self.page.fill("input[placeholder='请输入登录密码']", '12345678abc')
-            self.human_delay(1.0, 1.8)
-
-            # 勾选协议
-            self.page.click('.el-checkbox__inner')
-            self.human_delay(0.8, 1.4)
-
-            # 点击登录按钮
-            self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
-            self.human_delay(1.0, 2.0)
-
-            # 等待滑块出现并提示用户
-            logger.info("已点击登录按钮,等待滑块验证...")
-            logger.info("请手动完成滑块验证并点击登录!")
-            self.human_delay(1.5, 2.5)
+            # self.page.click("text=登录/注册")
+            # self.human_delay(1.5, 2.5)
+            #
+            # self.page.click("text=手机登录")
+            # self.human_delay(1.5, 2.5)
+            #
+            # # 输入账号密码
+            # self.page.fill("input[placeholder='请输入手机号']", '13151572333')
+            # self.human_delay(1.0, 1.8)
+            # self.page.fill("input[placeholder='请输入登录密码']", '12345678abc')
+            # self.human_delay(1.0, 1.8)
+            #
+            # # 勾选协议
+            # self.page.click('.el-checkbox__inner')
+            # self.human_delay(0.8, 1.4)
+            #
+            # # 点击登录按钮
+            # self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
+            # self.human_delay(1.0, 2.0)
+            #
+            # # 等待滑块出现并提示用户
+            # logger.info("已点击登录按钮,等待滑块验证...")
+            # logger.info("请手动完成滑块验证并点击登录!")
+            # self.human_delay(1.5, 2.5)
 
             # 等待用户手动完成滑块验证和登录,最多等待60秒
             logger.info("等待用户手动完成滑块验证和登录(最多等待60秒)...")
             wait_time = 0
-            max_wait_time = 60
+            max_wait_time = 300
 
             while wait_time < max_wait_time:
                 try:
@@ -221,14 +225,12 @@ class QianguaMcnRankSpider:
         try:
             url = response.url
             if response.request.resource_type in ['fetch', 'xhr']:
-                # 拦截三个接口
+                # 拦截四个接口
                 api_name = None
-                if 'GetMcnRankData' in url:
-                    api_name = 'GetMcnRankData'
-                elif 'GetMcnBrandList' in url:
-                    api_name = 'GetMcnBrandList'
-                elif 'GetMcnBrandNoteList' in url:
-                    api_name = 'GetMcnBrandNoteList'
+                if 'GetMcnDetail' in url:
+                    api_name = 'GetMcnDetail'
+                elif 'GetMcnNoteList' in url:
+                    api_name = 'GetMcnNoteList'
 
                 if api_name:
                     try:
@@ -252,15 +254,12 @@ class QianguaMcnRankSpider:
                                 'processed': False
                             })
 
-                            if api_name == 'GetMcnBrandList':
+                            if api_name == 'GetMcnDetail':
+                                belong_mcn = response_data.get('Data', {}).get('BelongMcn', '')
+                                logger.info(f"GetMcnDetail接口返回 BelongMcn={belong_mcn}")
+                            elif api_name == 'GetMcnNoteList':
                                 item_list = response_data.get('Data', {}).get('ItemList', [])
-                                logger.info(f"GetMcnBrandList接口返回 {len(item_list)} 条品牌数据")
-                            elif api_name == 'GetMcnBrandNoteList':
-                                item_list = response_data.get('Data', {}).get('ItemList', [])
-                                logger.info(f"GetMcnBrandList接口返回 {len(item_list)} 条笔记数据")
-                            elif api_name == 'GetMcnRankData':
-                                item_list = response_data.get('Data', {}).get('ItemList', [])
-                                logger.info(f"捕获 {len(item_list)} 条MCN排行数据")
+                                logger.info(f"GetMcnNoteList接口返回 {len(item_list)} 条笔记数据")
                             else:
                                 logger.info(f"{api_name} 接口数据")
 
@@ -281,242 +280,24 @@ class QianguaMcnRankSpider:
         except Exception as e:
             logger.error(f"保存cookies时出错: {str(e)}")
 
-    def save_rank_data_to_db(self, org_name, min_timestamp=None):
-        """处理MCN排行数据写入数据库"""
+    def save_note_data_to_db(self, belong_mcn, year_month, note_url_map=None):
+        """处理笔记数据写入数据库 - 使用标题匹配URL"""
         try:
-            rank_entries = self.api_data.get('GetMcnRankData', [])
-            if not rank_entries:
-                logger.warning(f"未捕获机构 {org_name} 的MCN排行数据,跳过入库")
-                return False
+            if note_url_map is None:
+                note_url_map = {}
 
-            inserted = 0
-            updated = 0
+            logger.info(f"开始保存笔记数据，收到 {len(note_url_map)} 个URL映射")
 
-            processed_entries = []
-            min_ts = 0
-            if min_timestamp is not None:
-                try:
-                    min_ts = int(min_timestamp)
-                except (TypeError, ValueError):
-                    min_ts = 0
-
-            for entry in rank_entries:
-                if entry.get('processed'):
-                    continue
-
-                try:
-                    entry_ts = int(entry.get('timestamp'))
-                except (TypeError, ValueError):
-                    entry_ts = 0
-
-                if min_ts and entry_ts and entry_ts < min_ts:
-                    continue
-
-                response_data = entry.get('data') or {}
-                item_list = (response_data.get('Data') or {}).get('ItemList') or []
-                if not item_list:
-                    processed_entries.append(entry)
-                    continue
-
-                for item in item_list:
-
-                    tags_text = item.get('BloggerTags')
-                    if not tags_text:
-                        tag_list = item.get('BloggerTagList') or []
-                        tags_text = ','.join(
-                            tag.get('Name') for tag in tag_list if tag.get('Name')
-                        )
-
-                    increase_value = item.get('IncreaseRankValue')
-                    try:
-                        increase_value_decimal = (
-                            Decimal(str(increase_value)).quantize(Decimal('0.00'))
-                            if increase_value is not None
-                            else Decimal('0.00')
-                        )
-                    except Exception:
-                        increase_value_decimal = Decimal('0.00')
-
-                    payload = {
-                        'nickname': item.get('NickName') or '',
-                        'rank_number': item.get('RankNumber') or 0,
-                        'change_number': item.get('ChangeNumber') or 0,
-                        'rank_value': item.get('RankValue') or 0,
-                        'rank_value_attach': item.get('RankValueAttach') or 0,
-                        'increase_rank_value': increase_value_decimal,
-                        'mcn_user_id': item.get('McnUserId'),
-                        'small_avatar': item.get('SmallAvatar'),
-                        'blogger_tags': tags_text,
-                        'blogger_count': item.get('BloggerCount') or 0,
-                        'note_count': item.get('NoteCount') or 0,
-                        'like_collect': item.get('LikeCollect') or 0,
-                        'fans_count': item.get('FansCount') or 0,
-                        'brand_count': item.get('BrandCount') or 0,
-                        'institute_name': item.get('InstituteName') or org_name,
-                        'is_certification': 1 if item.get('IsCertification') else 0,
-                        'current_user_is_favorite': 1 if item.get('CurrentUserIsFavorite') else 0,
-                    }
-
-                    record = session.query(QgBloggerRank).filter(QgBloggerRank.nickname == item.get('NickName')).first()
-
-                    if record:
-                        for field, value in payload.items():
-                            setattr(record, field, value)
-                        updated += 1
-                    else:
-                        session.add(QgBloggerRank(**payload))
-                        inserted += 1
-
-                processed_entries.append(entry)
-
-            if inserted or updated:
-                session.commit()
-                logger.info(
-                    f"机构 {org_name or '未知机构'} 笔记数据写入数据库完成: 新增 {inserted} 条, 更新 {updated} 条"
-                )
-            else:
-                logger.info(f"机构 {org_name or '未知机构'} 笔记数据无更新,跳过提交")
-
-            for entry in processed_entries:
-                entry['processed'] = True
-
-            self.api_data['GetMcnBrandNoteList'] = [entry for entry in rank_entries if not entry.get('processed')]
-            return inserted > 0 or updated > 0
-        except SQLAlchemyError as db_err:
-            session.rollback()
-            logger.error(f"机构 {org_name} 排行数据入库失败: {db_err}")
-            return False
-        except Exception as e:
-            session.rollback()
-            logger.error(f"机构 {org_name} 排行数据处理异常: {str(e)}")
-            return False
-
-    def save_brand_data_to_db(self, org_name, year_month):
-        """处理品牌列表数据写入数据库"""
-        try:
-            brand_entries = self.api_data.get('GetMcnBrandList', [])
-            if not brand_entries:
-                logger.warning(f"未捕获机构 {org_name} 的品牌数据,跳过入库")
-                return False
-
-            inserted = 0
-            updated = 0
-            processed_entries = []
-
-            for entry in brand_entries:
-                if entry.get('processed'):
-                    continue
-
-                response_data = entry.get('data') or {}
-                item_list = (response_data.get('Data') or {}).get('ItemList') or []
-                if not item_list:
-                    processed_entries.append(entry)
-                    continue
-
-                for item in item_list:
-                    brand_id = item.get('BrandId')
-                    if brand_id is None:
-                        continue
-
-                    amount_value = item.get('Amount')
-                    try:
-                        amount_value = int(amount_value) if amount_value is not None else 0
-                    except (TypeError, ValueError):
-                        amount_value = 0
-                    blogger = session.query(QgBloggerRank).filter(QgBloggerRank.nickname == org_name).first()
-
-                    payload = {
-                        'blogger_id': blogger.id,
-                        'month': year_month,
-                        'brand_id': brand_id,
-                        'brand_id_key': item.get('BrandIdKey'),
-                        'brand_name': item.get('BrandName') or item.get('BrandNickName') or '未知品牌',
-                        'brand_logo': item.get('BrandLogo'),
-                        'brand_intro': item.get('BrandIntro'),
-                        'note_count': item.get('NoteCount') or 0,
-                        'active_count': item.get('ActiveCount') or 0,
-                        'amount_desc': item.get('AmountDesc'),
-                        'amount': amount_value,
-                    }
-
-                    record = session.query(QgBrandInfo).filter(QgBrandInfo.brand_id == brand_id,
-                                                               QgBrandInfo.blogger_id == blogger.id,
-                                                               QgBrandInfo.month == year_month
-                                                               ).first()
-                    if record:
-                        for field, value in payload.items():
-                            setattr(record, field, value)
-                        updated += 1
-                    else:
-                        session.add(QgBrandInfo(**payload))
-                        inserted += 1
-
-                processed_entries.append(entry)
-
-            if inserted or updated:
-                session.commit()
-                logger.info(
-                    f"机构 {org_name} 品牌数据写入数据库完成: 新增 {inserted} 条, 更新 {updated} 条"
-                )
-            else:
-                logger.info(f"机构 {org_name} 品牌数据无更新,跳过提交")
-
-            for entry in processed_entries:
-                entry['processed'] = True
-
-            self.api_data['GetMcnBrandList'] = [entry for entry in brand_entries if not entry.get('processed')]
-            return inserted > 0 or updated > 0
-        except SQLAlchemyError as db_err:
-            session.rollback()
-            logger.error(f"机构 {org_name} 品牌数据入库失败: {db_err}")
-            return False
-        except Exception as e:
-            session.rollback()
-            logger.error(f"机构 {org_name} 品牌数据处理异常: {str(e)}")
-            return False
-
-    def save_note_data_to_db(self, year_month, org_name):
-        """处理笔记列表数据写入数据库"""
-        try:
-            org_display = org_name or self.current_organization or '未知机构'
-
-            note_entries = self.api_data.get('GetMcnBrandNoteList', [])
+            note_entries = self.api_data.get('GetMcnNoteList', [])
             if not note_entries:
-                wait_start = time.time()
-                while time.time() - wait_start < 3:
-                    note_entries = self.api_data.get('GetMcnBrandNoteList', [])
-                    if note_entries:
-                        break
-                    time.sleep(0.2)
-
-            if not note_entries:
-                logger.warning(f"未捕获机构 {org_display} 的笔记数据,跳过入库")
+                logger.warning(f"未捕获MCN {belong_mcn} 的笔记数据,跳过入库")
                 return False
 
             inserted = 0
             updated = 0
             processed_entries = []
-
-            def parse_datetime(value):
-                if not value:
-                    return None
-                if isinstance(value, str):
-                    value = value.replace('Z', '+00:00')
-                    try:
-                        return datetime.fromisoformat(value)
-                    except ValueError:
-                        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S'):
-                            try:
-                                return datetime.strptime(value, fmt)
-                            except ValueError:
-                                continue
-                return None
-
-            def to_int(value):
-                try:
-                    return int(value)
-                except (TypeError, ValueError):
-                    return 0
+            total_notes = 0  # 统计API返回的笔记总数
+            matched_urls = 0  # 统计成功匹配URL的笔记数
 
             for entry in note_entries:
                 if entry.get('processed'):
@@ -529,93 +310,112 @@ class QianguaMcnRankSpider:
                     continue
 
                 for item in item_list:
-                    note_id = item.get('NoteId')
-                    if note_id is None:
-                        continue
-
-                    amount_value = to_int(item.get('Amount'))
-                    publish_time = parse_datetime(item.get('PublishTime'))
-                    update_time_raw = parse_datetime(item.get('UpdateTime'))
-
+                    total_notes += 1
+                    # 解析发布日期
+                    pub_date_str = item.get('PubDate')
                     pub_date = None
-                    pub_date_value = item.get('PubDate')
-                    if pub_date_value:
+                    if pub_date_str:
                         try:
-                            pub_date = datetime.strptime(pub_date_value, '%Y-%m-%d').date()
-                        except ValueError:
-                            pub_date = None
+                            from datetime import datetime
+                            pub_date = datetime.strptime(pub_date_str, '%Y-%m-%d').date()
+                        except Exception:
+                            logger.warning(f"无法解析日期: {pub_date_str}")
 
-                    blogger = session.query(QgBloggerRank).filter(QgBloggerRank.nickname == org_name).first()
+                    # 处理金额字段
+                    amount_value = item.get('Amount')
+                    try:
+                        amount_value = int(amount_value) if amount_value is not None else 0
+                    except (TypeError, ValueError):
+                        amount_value = 0
+
+                    cover_image_url = item.get('CoverImage') or ''
+                    cover_image = cover_image_url.rsplit('/', 1)[-1] if cover_image_url else ''
+
+                    # 获取笔记ID（千瓜的ID）
+                    note_id = item.get('NoteId') or ''
+
+                    # 获取笔记标题
+                    note_title = item.get('Title') or ''
+
+                    # 标准化标题用于匹配
+                    normalized_title = self.normalize_title(note_title)
+
+                    # 根据标准化后的标题从note_url_map中获取对应的小红书URL
+                    note_url = note_url_map.get(normalized_title, '')
+                    if note_url:
+                        matched_urls += 1
+                        logger.info(f"✓ [{total_notes}] 标题匹配成功: {note_title[:40]}...")
+                        logger.debug(f"  原始标题: {note_title}")
+                        logger.debug(f"  标准化: {normalized_title[:50]}")
+                        logger.debug(f"  URL: {note_url}")
+                    else:
+                        logger.warning(f"✗ [{total_notes}] 标题未匹配到URL: {note_title[:40]}...")
+                        logger.debug(f"  原始标题: {note_title}")
+                        logger.debug(f"  标准化: {normalized_title[:50]}")
+                        logger.debug(f"  可用的映射key数量: {len(note_url_map)}")
 
                     payload = {
-                        'kol_id': blogger.id,
-                        'month': year_month,
+                        'title': note_title,
                         'note_id': note_id,
-                        'date_code': item.get('DateCode'),
-                        'note_id_key': item.get('NoteIdKey'),
-                        'unique_id': item.get('Id'),
-                        'user_id': item.get('UserId'),
-                        'title': item.get('Title'),
-                        'cover_image': item.get('CoverImage'),
-                        'blogger_id': item.get('BloggerId'),
-                        'blogger_id_key': item.get('BloggerIdKey'),
-                        'blogger_nickname': item.get('BloggerNickName'),
-                        'blogger_prop': item.get('BloggerProp'),
-                        'publish_time': publish_time,
-                        'note_type': item.get('NoteType'),
-                        'is_business': 1 if item.get('IsBusiness') else 0,
-                        'note_type_desc': item.get('NoteTypeDesc'),
-                        'props': to_int(item.get('Props')),
+                        'cover_image': cover_image,
+                        'blogger_nickname': item.get('BloggerNickName') or '',
+                        'blogger_prop': item.get('BloggerProp') or '',
+                        'note_type': item.get('NoteType') or '',
                         'pub_date': pub_date,
-                        'update_time_raw': update_time_raw,
-                        'video_duration': item.get('VideoDuration'),
-                        'gender': to_int(item.get('Gender')) if item.get('Gender') is not None else None,
-                        'big_avatar': item.get('BigAvatar'),
-                        'small_avatar': item.get('SmallAvatar'),
-                        'tag_name': item.get('TagName'),
-                        'cooperate_binds_name': item.get('CooperateBindsName'),
-                        'view_count': to_int(item.get('ViewCount')),
-                        'active_count': to_int(item.get('ActiveCount')),
+                        'cooperate_binds_name': item.get('CooperateBindsName') or '',
+                        'view_count': item.get('ViewCount') or 0,
+                        'active_count': item.get('ActiveCount') or 0,
                         'amount': amount_value,
-                        'ad_price_desc': item.get('AdPriceDesc'),
-                        'ad_price_update_status': to_int(item.get('AdPriceUpdateStatus')),
-                        'is_ad_note': 1 if item.get('IsAdNote') else 0,
+                        'belong_mcn': belong_mcn,
+                        'month': year_month,
+                        'collected_count': item.get('CollectedCount') or 0,
+                        'comments_count': item.get('CommentsCount') or 0,
+                        'liked_count': item.get('LikedCount') or 0,
+                        'share_count': item.get('ShareCount') or 0,
+                        'note_url': note_url,  # 添加小红书原文URL
                     }
 
-                    record = session.query(QgNoteInfo).filter(QgNoteInfo.note_id == note_id,
-                                                               QgNoteInfo.kol_id == blogger.id,
-                                                               QgNoteInfo.month == year_month
-                                                               ).first()
-                    if record:
-                        for field, value in payload.items():
-                            setattr(record, field, value)
-                        updated += 1
+                    # 根据note_id查找是否已存在
+                    if note_id:
+                        record = session.query(QgCompanyNoteInfo).filter(QgCompanyNoteInfo.note_id == note_id).first()
+                        if record:
+                            for field, value in payload.items():
+                                setattr(record, field, value)
+                            updated += 1
+                        else:
+                            session.add(QgCompanyNoteInfo(**payload))
+                            inserted += 1
                     else:
-                        session.add(QgNoteInfo(**payload))
-                        inserted += 1
+                        logger.warning(f"笔记缺少NoteId，跳过: {item.get('Title', '')}")
 
                 processed_entries.append(entry)
 
             if inserted or updated:
                 session.commit()
+                match_rate = (matched_urls / total_notes * 100) if total_notes > 0 else 0
                 logger.info(
-                    f"机构 {org_display} 笔记数据写入数据库完成: 新增 {inserted} 条, 更新 {updated} 条"
+                    f"MCN {belong_mcn} ({year_month}) 笔记数据写入数据库完成: "
+                    f"新增 {inserted} 条, 更新 {updated} 条"
+                )
+                logger.info(
+                    f"匹配统计: 总笔记数={total_notes}, URL匹配成功={matched_urls}, "
+                    f"匹配率={match_rate:.1f}%"
                 )
             else:
-                logger.info(f"机构 {org_display} 笔记数据无更新,跳过提交")
+                logger.info(f"MCN {belong_mcn} ({year_month}) 笔记数据无更新,跳过提交")
 
             for entry in processed_entries:
                 entry['processed'] = True
 
-            self.api_data['GetMcnBrandNoteList'] = [entry for entry in note_entries if not entry.get('processed')]
+            self.api_data['GetMcnNoteList'] = [entry for entry in note_entries if not entry.get('processed')]
             return inserted > 0 or updated > 0
         except SQLAlchemyError as db_err:
             session.rollback()
-            logger.error(f"机构 {org_name} 笔记数据入库失败: {db_err}")
+            logger.error(f"MCN {belong_mcn} 笔记数据入库失败: {db_err}")
             return False
         except Exception as e:
             session.rollback()
-            logger.error(f"机构 {org_name} 笔记数据处理异常: {str(e)}")
+            logger.error(f"MCN {belong_mcn} 笔记数据处理异常: {str(e)}")
             return False
 
     def load_cookies(self):
@@ -673,6 +473,88 @@ class QianguaMcnRankSpider:
             logger.error(f"检查并处理登录状态时出错: {str(e)}")
             return False
 
+
+    def check_xiaohongshu_login_status(self, page):
+        """检查小红书页面登录状态"""
+        try:
+            # 等待页面加载完成
+            page.wait_for_load_state('networkidle', timeout=5000)
+
+            # 检查是否有用户侧边栏元素
+            try:
+                avatar = page.wait_for_selector('.channel-list >> .user', timeout=10000)
+                if avatar:
+                    logger.info('小红书页面: 检测到已登录状态')
+                    self.xhs_logged_in = True
+                    return True
+            except:
+                pass
+
+            # 或者检查是否有登录按钮
+            try:
+                login_button = page.locator('text=登录').all()
+                if len(login_button) > 0:
+                    logger.info('小红书页面: 检测到未登录状态')
+                    self.xhs_logged_in = False
+                    return False
+            except:
+                pass
+
+            logger.info('小红书页面: 未检测到登录状态')
+            self.xhs_logged_in = False
+            return False
+
+        except Exception as e:
+            logger.error(f'检查小红书登录状态失败: {str(e)}')
+            self.xhs_logged_in = False
+            return False
+
+    def xiaohongshu_login(self, page):
+        """执行小红书登录操作"""
+        try:
+            logger.info('小红书页面: 开始登录流程...')
+
+            # 等待并点击登录按钮
+            try:
+                login_button = page.wait_for_selector('text=登录', timeout=10000)
+                if not login_button:
+                    logger.error('小红书页面: 未找到登录按钮')
+                    return False
+
+                login_button.click()
+                self.human_delay(2, 3)
+            except:
+                # 如果没有找到登录按钮，可能是已经在登录弹窗中
+                logger.info('小红书页面: 可能已在登录弹窗中')
+
+            # 等待用户扫码登录
+            logger.info('小红书页面: 请扫码登录...')
+            logger.info('小红书页面: 等待用户完成登录(最多等待60秒)...')
+
+            wait_time = 0
+            max_wait_time = 60
+
+            while wait_time < max_wait_time:
+                time.sleep(2)
+                wait_time += 2
+
+                # 检查是否登录成功
+                if self.check_xiaohongshu_login_status(page):
+                    logger.info(f'小红书页面: 登录成功! (等待了 {wait_time} 秒)')
+                    logger.info('小红书页面: Cookies已自动保存到chrome_user_data目录（persistent context）')
+                    return True
+
+                # 每10秒提示一次
+                if wait_time % 10 == 0:
+                    logger.info(f'小红书页面: 仍在等待用户完成登录... (已等待 {wait_time}/{max_wait_time} 秒)')
+
+            logger.error(f'小红书页面: 等待超时({max_wait_time}秒),登录失败')
+            return False
+
+        except Exception as e:
+            logger.error(f'小红书页面: 登录过程出错: {str(e)}')
+            return False
+
     def click_business_income_tab(self):
         """点击商业收入榜"""
         try:
@@ -710,7 +592,8 @@ class QianguaMcnRankSpider:
             if 'GetMcnRankData' in self.api_data:
                 self.api_data['GetMcnRankData'] = []
 
-            search_input = self.page.locator('.search-box.mr16 .el-autocomplete.s-input .el-input.el-input--medium.el-input-group.el-input-group--append.el-input--suffix input')
+            search_input = self.page.locator(
+                '.search-box.mr16 .el-autocomplete.s-input .el-input.el-input--medium.el-input-group.el-input-group--append.el-input--suffix input')
 
             search_input.fill('')
             self.human_delay(0.6, 1.2)
@@ -718,37 +601,13 @@ class QianguaMcnRankSpider:
             search_input.fill(org_name)
             self.human_delay(1.0, 1.8)
 
-            search_start_ts = int(time.time() * 1000)
             search_input.press('Enter')
             self.human_delay(1.5, 2.5)
-
-            new_data_received = False
-            try:
-                self.page.wait_for_event(
-                    'response',
-                    timeout=10000,
-                    predicate=lambda response: (
-                        'GetMcnRankData' in response.url
-                        and response.request.resource_type in ('xhr', 'fetch')
-                    )
-                )
-                new_data_received = True
-            except PlaywrightTimeoutError:
-                logger.warning(f"搜索机构 {org_name} 后未捕获新的GetMcnRankData响应")
 
             self.page.wait_for_load_state('networkidle', timeout=10000)
             self.human_delay(1.0, 1.8)
 
             logger.info(f"搜索机构 {org_name} 完成")
-
-            if not new_data_received:
-                wait_start = time.time()
-                while time.time() - wait_start < 3:
-                    if self.api_data.get('GetMcnRankData'):
-                        break
-                    time.sleep(0.2)
-
-            self.save_rank_data_to_db(org_name, min_timestamp=search_start_ts)
             return True
         except Exception as e:
             logger.error(f"搜索机构 {org_name} 时出错: {str(e)}")
@@ -758,6 +617,10 @@ class QianguaMcnRankSpider:
         """点击列表中的第index个机构"""
         try:
             logger.info(f"点击第 {index + 1} 个机构...")
+
+            # 清空之前的GetMcnDetail数据
+            if 'GetMcnDetail' in self.api_data:
+                self.api_data['GetMcnDetail'] = []
 
             # 使用JavaScript点击机构
             clicked = self.page.evaluate(f'''
@@ -778,6 +641,21 @@ class QianguaMcnRankSpider:
             if clicked:
                 logger.info(f"成功点击第 {index + 1} 个机构")
                 self.human_delay(1.5, 2.5)
+
+                # 等待GetMcnDetail接口响应
+                try:
+                    self.page.wait_for_event(
+                        'response',
+                        timeout=10000,
+                        predicate=lambda response: (
+                                'GetMcnDetail' in response.url
+                                and response.request.resource_type in ('xhr', 'fetch')
+                        )
+                    )
+                    logger.info("成功捕获GetMcnDetail接口响应")
+                except PlaywrightTimeoutError:
+                    logger.warning("等待GetMcnDetail接口响应超时")
+
                 return True
             else:
                 logger.warning(f"未找到第 {index + 1} 个机构")
@@ -786,20 +664,43 @@ class QianguaMcnRankSpider:
             logger.error(f"点击第 {index + 1} 个机构时出错: {str(e)}")
             return False
 
-    def click_cooperation_brand(self):
-        """点击合作品牌标签"""
+    def get_belong_mcn(self):
+        """从GetMcnDetail接口数据中获取BelongMcn"""
         try:
-            logger.info("点击合作品牌...")
+            detail_entries = self.api_data.get('GetMcnDetail', [])
+            if not detail_entries:
+                logger.warning("未找到GetMcnDetail接口数据")
+                return None
+
+            # 获取最新的一条数据
+            latest_entry = detail_entries[-1]
+            response_data = latest_entry.get('data') or {}
+            belong_mcn = (response_data.get('Data') or {}).get('BelongMcn')
+
+            if belong_mcn:
+                logger.info(f"成功获取BelongMcn: {belong_mcn}")
+                return belong_mcn
+            else:
+                logger.warning("GetMcnDetail接口数据中未找到BelongMcn字段")
+                return None
+        except Exception as e:
+            logger.error(f"获取BelongMcn时出错: {str(e)}")
+            return None
+
+    def click_cooperation_brand(self):
+        """点击商业合作标签"""
+        try:
+            logger.info("点击商业合作...")
 
             # 清空之前的API数据
-            if 'GetMcnBrandList' in self.api_data:
-                self.api_data['GetMcnBrandList'] = []
+            if 'GetMcnNoteList' in self.api_data:
+                self.api_data['GetMcnNoteList'] = []
 
-            # 使用正确的选择器点击合作品牌tab
+            # 使用正确的选择器点击商业合作tab
             clicked = self.page.evaluate('''
                 () => {
-                    // 查找合作品牌tab: div.el-tabs__nav-wrap.is-top -> .el-tabs__nav-scroll -> [role="tablist"] -> #tab-brand
-                    const brandTab = document.querySelector('.el-tabs__nav-wrap.is-top .el-tabs__nav-scroll [role="tablist"] #tab-brand');
+                    // 查找商业合作tab: div.el-tabs__nav-wrap.is-top -> .el-tabs__nav-scroll -> [role="tablist"] -> #tab-business
+                    const brandTab = document.querySelector('.el-tabs__nav-wrap.is-top .el-tabs__nav-scroll [role="tablist"] #tab-business');
                     if (brandTab) {
                         brandTab.click();
                         return true;
@@ -809,15 +710,15 @@ class QianguaMcnRankSpider:
             ''')
 
             if clicked:
-                logger.info("成功点击合作品牌")
+                logger.info("成功点击商业合作")
                 self.human_delay(1.5, 2.5)
                 self.page.wait_for_load_state('networkidle', timeout=10000)
                 return True
             else:
-                logger.error("未找到合作品牌按钮")
+                logger.error("未找到商业合作按钮")
                 return False
         except Exception as e:
-            logger.error(f"点击合作品牌时出错: {str(e)}")
+            logger.error(f"点击商业合作时出错: {str(e)}")
             return False
 
     def select_date_range_for_month(self, year_month):
@@ -846,22 +747,17 @@ class QianguaMcnRankSpider:
                         return {success: false, message: '未找到.el-tabs__content'};
                     }
 
-                    const panesBrand = tabsContent.querySelector('#pane-brand');
-                    if (!panesBrand) {
-                        return {success: false, message: '未找到#pane-brand'};
+                    const panesBusiness = tabsContent.querySelector('#pane-business');
+                    if (!panesBusiness) {
+                        return {success: false, message: '未找到#pane-business'};
                     }
 
-                    const imgPermissionWrapper = panesBrand.querySelector('.img-permission-wrapper');
+                    const imgPermissionWrapper = panesBusiness.querySelector('.img-permission-wrapper');
                     if (!imgPermissionWrapper) {
                         return {success: false, message: '未找到.img-permission-wrapper'};
                     }
 
-                    const brandWrap = imgPermissionWrapper.querySelector('.brand-wrap');
-                    if (!brandWrap) {
-                        return {success: false, message: '未找到.brand-wrap'};
-                    }
-
-                    const datePickerWrapper = brandWrap.querySelector('.date-picker.range-picker-wrapper');
+                    const datePickerWrapper = imgPermissionWrapper.querySelector('.date-picker.range-picker-wrapper');
                     if (!datePickerWrapper) {
                         return {success: false, message: '未找到.date-picker.range-picker-wrapper'};
                     }
@@ -878,13 +774,13 @@ class QianguaMcnRankSpider:
                     }
 
                     const thirdDiv = divs[2]; // 索引为2是第三个
-                    
+
                     // 获取日期选择器的位置信息
                     const dateEditor = thirdDiv.querySelector('.el-date-editor--daterange');
                     if (!dateEditor) {
                         return {success: false, message: '未找到日期选择器'};
                     }
-                    
+
                     const rect = dateEditor.getBoundingClientRect();
                     return {
                         success: true, 
@@ -906,9 +802,9 @@ class QianguaMcnRankSpider:
             # 使用坐标点击日期选择器的中心位置
             click_x = result['x']
             click_y = result['y']
-            
+
             logger.info(f"准备点击坐标: x={click_x}, y={click_y}")
-            
+
             # 使用page.mouse.click点击指定坐标
             self.page.mouse.click(click_x, click_y)
             logger.info(f"已点击日期选择器坐标")
@@ -964,11 +860,13 @@ class QianguaMcnRankSpider:
                     if (current_year < year) or (current_year == year and current_month < month):
                         # 需要向右切换(未来的月份)
                         logger.info("点击右侧箭头切换到下一个月")
-                        self.page.click('.el-picker-panel__content.el-date-range-picker__content.is-right .el-date-range-picker__header .el-picker-panel__icon-btn.el-icon-arrow-right')
+                        self.page.click(
+                            '.el-picker-panel__content.el-date-range-picker__content.is-right .el-date-range-picker__header .el-picker-panel__icon-btn.el-icon-arrow-right')
                     else:
                         # 需要向左切换(过去的月份)
                         logger.info("点击左侧箭头切换到上一个月")
-                        self.page.click('.el-picker-panel__content.el-date-range-picker__content.is-left .el-date-range-picker__header .el-picker-panel__icon-btn.el-icon-arrow-left')
+                        self.page.click(
+                            '.el-picker-panel__content.el-date-range-picker__content.is-left .el-date-range-picker__header .el-picker-panel__icon-btn.el-icon-arrow-left')
 
                     self.human_delay(0.8, 1.4)
                     attempt += 1
@@ -1115,90 +1013,10 @@ class QianguaMcnRankSpider:
             logger.error(f"选择日期范围时出错: {str(e)}")
             return False
 
-    def click_sort_by_cost(self):
-        """点击预估合作费用排序"""
+    def scroll_to_load_notes(self, max_records):
+        """滚动加载笔记数据"""
         try:
-            logger.info("点击预估合作费用排序...")
-
-            # 查找所有包含"预估合作费用"文本的sort-title元素并点击
-            clicked = self.page.evaluate('''
-                () => {
-                    // 先尝试在弹出框内查找
-                    const dialog = document.querySelector('.el-dialog__body');
-                    if (dialog) {
-                        const sortTitles = dialog.querySelectorAll('span.sort-title');
-                        console.log('在弹出框内找到 ' + sortTitles.length + ' 个 sort-title 元素');
-
-                        for (let i = 0; i < sortTitles.length; i++) {
-                            const title = sortTitles[i];
-                            const text = title.textContent.trim();
-                            console.log('弹出框 sort-title[' + i + ']: "' + text + '"');
-
-                            if (text === '预估合作费用' || text.includes('预估合作费用')) {
-                                const clickTarget = title.closest('.self-head-sort-v2') || title.closest('.allow-sort') || title;
-                                clickTarget.click();
-                                console.log('成功点击弹出框内的预估合作费用排序');
-                                return true;
-                            }
-                        }
-                    }
-
-                    // 如果弹出框内没找到,尝试全局查找
-                    const allSortTitles = document.querySelectorAll('span.sort-title');
-                    console.log('全局找到 ' + allSortTitles.length + ' 个 sort-title 元素');
-
-                    for (let i = 0; i < allSortTitles.length; i++) {
-                        const title = allSortTitles[i];
-                        const text = title.textContent.trim();
-                        console.log('全局 sort-title[' + i + ']: "' + text + '"');
-
-                        if (text === '预估合作费用' || text.includes('预估合作费用')) {
-                            const clickTarget = title.closest('.self-head-sort-v2') || title.closest('.allow-sort') || title;
-                            clickTarget.click();
-                            console.log('成功点击预估合作费用排序');
-                            return true;
-                        }
-                    }
-
-                    console.log('未找到包含"预估合作费用"的 sort-title');
-                    return false;
-                }
-            ''')
-
-            if clicked:
-                logger.info("成功点击预估合作费用排序")
-                self.human_delay(1.0, 2.0)
-                
-                # 等待GetMcnBrandList接口响应
-                logger.info("等待GetMcnBrandList接口响应...")
-                wait_start = time.time()
-                max_wait = 10  # 最多等待10秒
-
-                while time.time() - wait_start < max_wait:
-                    if 'GetMcnBrandList' in self.api_data and len(self.api_data['GetMcnBrandList']) > 0:
-                        # 检查最新的接口是否成功
-                        latest_data = self.api_data['GetMcnBrandList'][-1]
-                        response_data = latest_data.get('data', {})
-                        if response_data.get('Code') == 0:
-                            logger.info(f"GetMcnBrandList接口响应成功,已获取数据")
-                            break
-                        elif response_data.get('Code') == 500:
-                            logger.warning(f"GetMcnBrandList接口返回错误: {response_data.get('Msg')}")
-                    time.sleep(0.5)
-                
-                logger.info(f"当前已获取 {len(self.api_data.get('GetMcnBrandList', []))} 条GetMcnBrandList数据")
-                return True
-            else:
-                logger.error("未找到预估合作费用排序按钮")
-                return False
-        except Exception as e:
-            logger.error(f"点击预估合作费用排序时出错: {str(e)}")
-            return False
-
-    def scroll_to_load_brands(self, max_records):
-        """滚动加载品牌数据"""
-        try:
-            logger.info(f"开始滚动加载品牌数据,最多加载 {max_records} 条...")
+            logger.info(f"开始滚动加载笔记数据,最多加载 {max_records} 条...")
 
             # 首先滚动el-tabs__content到底部
             logger.info("先滚动el-tabs__content到底部...")
@@ -1213,44 +1031,44 @@ class QianguaMcnRankSpider:
             ''')
             time.sleep(2)
 
-            # 清空之前可能触发的GetMcnBrandList接口数据
-            if 'GetMcnBrandList' in self.api_data:
-                self.api_data['GetMcnBrandList'] = []
-            
-            # 在指定位置持续滚轮滚动，直到GetMcnBrandList接口出现
-            logger.info("移动鼠标到品牌列表位置(931, 575)并滚动，等待接口响应...")
+            # 清空之前可能触发的GetMcnNoteList接口数据
+            if 'GetMcnNoteList' in self.api_data:
+                self.api_data['GetMcnNoteList'] = []
+
+            # 在指定位置持续滚轮滚动，直到GetMcnNoteList接口出现
+            logger.info("移动鼠标到笔记列表位置(931, 575)并滚动，等待接口响应...")
             self.page.mouse.move(931, 575)
             time.sleep(0.5)
-            
+
             max_scroll_attempts = 20  # 最多滚动20次
             scroll_attempt = 0
-            
+
             while scroll_attempt < max_scroll_attempts:
                 # 向下滚动鼠标滚轮
-                self.page.mouse.wheel(0, 300)  # 增大滚动量
+                self.page.mouse.wheel(0, 1000)  # 增大滚动量
                 scroll_attempt += 1
                 logger.info(f"第 {scroll_attempt} 次鼠标滚轮滚动...")
                 time.sleep(1)
-                
-                # 检查是否有GetMcnBrandList接口响应
-                if 'GetMcnBrandList' in self.api_data and len(self.api_data['GetMcnBrandList']) > 0:
-                    logger.info(f"检测到GetMcnBrandList接口响应，停止鼠标滚轮滚动")
+
+                # 检查是否有GetMcnNoteList接口响应
+                if 'GetMcnNoteList' in self.api_data and len(self.api_data['GetMcnNoteList']) > 0:
+                    logger.info(f"检测到GetMcnNoteList接口响应，停止鼠标滚轮滚动")
                     break
-            
+
             if scroll_attempt >= max_scroll_attempts:
                 logger.warning("鼠标滚轮滚动达到最大次数，但未检测到接口响应")
 
-            # 然后使用鼠标滚轮滚动品牌列表
-            logger.info("开始使用鼠标滚轮滚动品fex牌列表...")
-            
+            # 然后使用鼠标滚轮滚动笔记列表
+            logger.info("开始使用鼠标滚轮滚动笔记列表...")
+
             # 先获取初始已有的数据条数
             initial_count = self.page.evaluate('''
                 () => {
                     return document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom').length;
                 }
             ''')
-            logger.info(f"初始已有 {initial_count} 条品牌数据")
-            
+            logger.info(f"初始已有 {initial_count} 条笔记数据")
+
             prev_count = initial_count
             no_more_data = False
             scroll_count = 0
@@ -1258,10 +1076,10 @@ class QianguaMcnRankSpider:
 
             while prev_count < max_records and not no_more_data:
                 scroll_count += 1
-                
+
                 # 使用鼠标滚轮向下滚动
                 self.page.mouse.wheel(0, 500)  # 增大滚动量
-                
+
                 # 随机等待
                 delay = random.uniform(self.scroll_delay_min, self.scroll_delay_max)
                 logger.info(f"第 {scroll_count} 次鼠标滚轮滚动,等待 {delay:.2f} 秒...")
@@ -1277,184 +1095,284 @@ class QianguaMcnRankSpider:
                 if new_count == prev_count:
                     consecutive_no_change += 1
                     logger.info(f"当前仍为 {new_count} 条数据，连续 {consecutive_no_change} 次无变化")
-                    
+
                     # 连续3次没有变化才认为没有更多数据
                     if consecutive_no_change >= 3:
                         logger.info("连续3次滚动无新数据,停止滚动")
                         no_more_data = True
                 else:
                     consecutive_no_change = 0  # 重置计数器
-                    logger.info(f"当前已加载 {new_count} 条品牌数据 (初始 {initial_count} + 新增 {new_count - initial_count})")
+                    logger.info(
+                        f"当前已加载 {new_count} 条笔记数据 (初始 {initial_count} + 新增 {new_count - initial_count})")
                     prev_count = new_count
-                    
+
                 if prev_count >= max_records:
                     logger.info(f"已达到最大记录数 {max_records},停止加载")
                     break
 
             # 统计本次滚动总共获取的API数据
-            total_api_count = len(self.api_data.get('GetMcnBrandList', []))
-            logger.info(f"滚动完成,共滚动 {scroll_count} 次,获取 {total_api_count} 次GetMcnBrandList接口数据")
-            total_api_count = len(self.api_data.get('GetMcnBrandList', []))
-            logger.info(f"滚动完成,共滚动 {scroll_count} 次,获取 {total_api_count} 次GetMcnBrandList接口数据")
-            
+            total_api_count = len(self.api_data.get('GetMcnNoteList', []))
+            logger.info(f"滚动完成,共滚动 {scroll_count} 次,获取 {total_api_count} 次GetMcnNoteList接口数据")
+
             final_count = self.page.evaluate('''
                 () => {
                     return document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom').length;
                 }
             ''')
 
-            logger.info(f"品牌数据加载完成,共 {final_count} 条")
+            logger.info(f"笔记数据加载完成,共 {final_count} 条")
             return final_count
         except Exception as e:
-            logger.error(f"滚动加载品牌数据时出错: {str(e)}")
+            logger.error(f"滚动加载笔记数据时出错: {str(e)}")
             return 0
 
-    def click_brand_item_and_view(self, index, year_month, org_name):
-        """点击品牌列表中的某一项并查看详情"""
+    def click_note_original_links(self):
+        """点击每条笔记的原文按钮并获取URL - 返回标题到URL的映射字典"""
         try:
-            logger.info(f"点击第 {index + 1} 个品牌并查看详情...")
+            logger.info("开始点击笔记原文按钮...")
 
-            # 清空之前的API数据
-            if 'GetMcnBrandNoteList' in self.api_data:
-                self.api_data['GetMcnBrandNoteList'] = []
-
-            # 点击查看链接 (list-row下第二个div里的col-cell里的div里的a标签)
-            clicked = self.page.evaluate(f'''
-                () => {{
-                    const listItems = document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom');
-                    if (listItems.length > {index}) {{
-                        const item = listItems[{index}];
-                        const listRow = item.querySelector('.list-row');
-                        if (listRow) {{
-                            // 获取list-row下的第二个div
-                            const divs = listRow.querySelectorAll(':scope > div');
-                            if (divs.length >= 2) {{
-                                const secondDiv = divs[1];
-                                const viewLink = secondDiv.querySelector(':scope > div > div > a');
-                                if (viewLink) {{
-                                    viewLink.click();
-                                    console.log('����˲鿴����:', viewLink.textContent);
-                                    return true;
-                                }}
-                            }}
-                        }}
-                    }}
-                    return false;
-                }}
-            ''')
-
-            if not clicked:
-                logger.warning(f"未找到第 {index + 1} 个品牌的查看链接")
-                return False
-
-            logger.info(f"成功点击第 {index + 1} 个品牌的查看链接")
-            self.human_delay(1.5, 2.5)
-
-            # 点击投放报价
-            logger.info("点击投放报价...")
-            clicked = self.page.evaluate('''
+            # 获取所有笔记卡片
+            note_cards_count = self.page.evaluate('''
                 () => {
-                    // 在弹出框内查找包含"投放报价"文本的sort-title
-                    const dialog = document.querySelector('.el-dialog__body');
-                    if (!dialog) {
-                        console.log('未找到.el-dialog__body');
-                        return false;
-                    }
-
-                    // 在.list-hd中查找所有.col-item
-                    const listHd = dialog.querySelector('.list-hd');
-                    if (!listHd) {
-                        console.log('未找到.list-hd');
-                        return false;
-                    }
-
-                    const colItems = listHd.querySelectorAll('.col-item');
-                    console.log('找到 ' + colItems.length + ' 个 .col-item');
-
-                    for (let i = 0; i < colItems.length; i++) {
-                        const sortTitle = colItems[i].querySelector('.sort-title');
-                        if (sortTitle) {
-                            const text = sortTitle.textContent.trim();
-                            console.log('col-item[' + i + '] sort-title: "' + text + '"');
-
-                            if (text === '投放报价' || text.includes('投放报价')) {
-                                // 点击整个.self-head-sort-v2元素或.allow-sort元素
-                                const clickTarget = sortTitle.closest('.self-head-sort-v2') ||
-                                                   sortTitle.closest('.allow-sort') ||
-                                                   sortTitle;
-                                clickTarget.click();
-                                console.log('成功点击投放报价');
-                                return true;
-                            }
-                        }
-                    }
-
-                    console.log('未找到包含"投放报价"的元素');
-                    return false;
+                    const noteCards = document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom');
+                    return noteCards.length;
                 }
             ''')
 
-            if not clicked:
-                logger.warning("未找到投放报价按钮")
-                # 按ESC键关闭弹窗
-                self.page.keyboard.press('Escape')
-                self.human_delay(0.8, 1.4)
-                return False
+            logger.info(f"共找到 {note_cards_count} 条笔记")
 
-            logger.info("成功点击投放报价")
-            self.human_delay(1.5, 2.5)
-            self.page.wait_for_load_state('networkidle', timeout=10000)
+            note_url_map = {}  # 存储标题到URL的映射
 
-            # 滚动一次加载更多数据
-            logger.info("滚动加载投放报价数据...")
-            note_list_selector = (
-                ".el-dialog__body "
-                ".index-note-modal.relative-note-list__wrap "
-                ".list-con.scroll-list.qg-scrollo-list.scroll-mode "
-                ".list-bd.page-component__scroll"
-            )
-            note_container = self.page.locator(note_list_selector)
-            try:
-                note_container.wait_for(state="visible", timeout=5000)
-                bounding_box = note_container.bounding_box()
-                if bounding_box:
-                    x = bounding_box["x"] + bounding_box["width"] / 2
-                    y = bounding_box["y"] + 10
-                    self.page.mouse.move(x, y)
-                    self.page.wait_for_timeout(500)
-                    self.page.mouse.wheel(0, 800)
-                else:
-                    logger.warning("未获取到投放报价列表 bounding box，改用 evaluate 滚动")
-                    self.page.evaluate('''
-                        () => {
-                            const container = document.querySelector(
-                                '.index-note-modal.relative-note-list__wrap .list-con.scroll-list.qg-scrollo-list.scroll-mode .list-bd.page-component__scroll'
-                            );
-                            if (container) {
-                                container.scrollTop = container.scrollHeight;
-                            }
-                        }
+            for index in range(note_cards_count):
+                try:
+                    logger.info(f"处理第 {index + 1}/{note_cards_count} 条笔记")
+
+                    # 先提取笔记标题（使用准确的DOM路径）
+                    note_title = self.page.evaluate(f'''
+                        () => {{
+                            const noteCards = document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom');
+                            if (noteCards.length <= {index}) {{
+                                console.log('索引超出范围');
+                                return null;
+                            }}
+
+                            const card = noteCards[{index}];
+                            const listRow = card.querySelector('.list-row');
+                            if (!listRow) {{
+                                console.log('未找到list-row');
+                                return null;
+                            }}
+
+                            // 第1个div
+                            const rowDivs = listRow.querySelectorAll(':scope > div');
+                            if (rowDivs.length < 1) {{
+                                console.log('rowDivs数量不足1个');
+                                return null;
+                            }}
+
+                            const firstDiv = rowDivs[0];
+                            const colCell = firstDiv.querySelector('.col-cell');
+                            if (!colCell) {{
+                                console.log('未找到col-cell');
+                                return null;
+                            }}
+
+                            // 按照准确路径查找标题
+                            const noteUserWrap = colCell.querySelector('.common-note-user-wrap');
+                            if (!noteUserWrap) {{
+                                console.log('未找到common-note-user-wrap');
+                                return null;
+                            }}
+
+                            const userContainer = noteUserWrap.querySelector('.user-container.note-user-wrapper');
+                            if (!userContainer) {{
+                                console.log('未找到user-container');
+                                return null;
+                            }}
+
+                            const userInfo = userContainer.querySelector('.user-info');
+                            if (!userInfo) {{
+                                console.log('未找到user-info');
+                                return null;
+                            }}
+
+                            const name = userInfo.querySelector('.name');
+                            if (!name) {{
+                                console.log('未找到name');
+                                return null;
+                            }}
+
+                            const noteTitleWrapper = name.querySelector('.note-title-wrapper');
+                            if (!noteTitleWrapper) {{
+                                console.log('未找到note-title-wrapper');
+                                return null;
+                            }}
+
+                            const titleSpan = noteTitleWrapper.querySelector('span.title');
+                            if (!titleSpan) {{
+                                console.log('未找到span.title');
+                                return null;
+                            }}
+
+                            return titleSpan.textContent.trim();
+                        }}
                     ''')
-            except Exception as e:
-                logger.warning(f"滚动投放报价数据时出错: {e}")
-            self.human_delay(1.0, 2.0)
 
-            # 按一次ESC键返回品牌列表
-            logger.info("按ESC键返回品牌列表...")
-            self.save_note_data_to_db(year_month, org_name)
-            self.page.keyboard.press('Escape')
-            self.human_delay(0.8, 1.4)
+                    if not note_title:
+                        logger.warning(f"第 {index + 1} 条笔记未找到标题，跳过")
+                        continue
 
-            return True
+                    # 标准化标题用于匹配
+                    normalized_title = self.normalize_title(note_title)
+                    logger.info(f"第 {index + 1} 条笔记标题: {note_title[:50]}...")
+                    logger.debug(f"标准化后: {normalized_title[:50]}...")
+
+                    # 等待新页面打开（先开始监听popup，再点击）
+                    try:
+                        # 使用context manager捕获popup
+                        with self.page.expect_popup(timeout=15000) as popup_info:
+                            # 在监听过程中点击原文按钮
+                            clicked = self.page.evaluate(f'''
+                                () => {{
+                                    const noteCards = document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom');
+                                    if (noteCards.length <= {index}) {{
+                                        console.log('索引超出范围');
+                                        return false;
+                                    }}
+
+                                    const card = noteCards[{index}];
+                                    const listRow = card.querySelector('.list-row');
+                                    if (!listRow) {{
+                                        console.log('未找到list-row');
+                                        return false;
+                                    }}
+
+                                    // 获取所有子div
+                                    const rowDivs = listRow.querySelectorAll(':scope > div');
+                                    if (rowDivs.length < 5) {{
+                                        console.log('rowDivs数量不足5个:', rowDivs.length);
+                                        return false;
+                                    }}
+
+                                    const fifthDiv = rowDivs[4];  // 第5个div，索引为4
+                                    const colCell = fifthDiv.querySelector('.col-cell');
+                                    if (!colCell) {{
+                                        console.log('未找到col-cell');
+                                        return false;
+                                    }}
+
+                                    const flexColumn = colCell.querySelector('.flex-column');
+                                    if (!flexColumn) {{
+                                        console.log('未找到flex-column');
+                                        return false;
+                                    }}
+
+                                    const spans = flexColumn.querySelectorAll(':scope > span');
+                                    if (spans.length < 2) {{
+                                        console.log('spans数量不足2个:', spans.length);
+                                        return false;
+                                    }}
+
+                                    const secondSpan = spans[1];  // 第2个span，索引为1
+                                    const referenceWrapper = secondSpan.querySelector('.el-popover__reference-wrapper');
+                                    if (!referenceWrapper) {{
+                                        console.log('未找到el-popover__reference-wrapper');
+                                        return false;
+                                    }}
+
+                                    const link = referenceWrapper.querySelector('a.text-link');
+                                    if (!link) {{
+                                        console.log('未找到原文链接');
+                                        return false;
+                                    }}
+
+                                    link.click();
+                                    console.log('成功点击原文按钮');
+                                    return true;
+                                }}
+                            ''')
+
+                        # 检查是否点击成功
+                        if not clicked:
+                            logger.warning(f"第 {index + 1} 条笔记未找到原文按钮，跳过")
+                            continue
+
+                        logger.info(f"成功点击第 {index + 1} 条笔记的原文按钮，等待页面打开...")
+                        new_page = popup_info.value
+
+                        # 等待新页面完全加载（确保获取最终URL）
+                        logger.info("等待小红书页面完全加载...")
+                        try:
+                            new_page.wait_for_load_state('load', timeout=20000)
+                            self.human_delay(1, 2)
+                            logger.info("页面加载完成")
+                        except PlaywrightTimeoutError:
+                            logger.warning(f"第 {index + 1} 条笔记页面加载超时，但继续获取URL")
+                            # 即使超时，页面也已经打开，URL也应该可用，继续执行
+                            self.human_delay(1, 2)
+
+                        # 检查小红书登录状态，如果未登录则先登录
+                        if not self.xhs_logged_in:
+                            logger.info("检查小红书登录状态...")
+                            if not self.check_xiaohongshu_login_status(new_page):
+                                logger.info("小红书未登录，开始登录流程...")
+                                if not self.xiaohongshu_login(new_page):
+                                    logger.error("小红书登录失败，关闭当前页面，跳过此笔记")
+                                    new_page.close()
+                                    self.human_delay(2, 3)
+                                    continue
+                                logger.info("小红书登录成功，继续获取笔记URL")
+                            else:
+                                logger.info("小红书已登录，继续获取笔记URL")
+                        else:
+                            logger.info("小红书已登录（使用缓存状态），继续获取笔记URL")
+
+                        # 获取新页面的URL（小红书笔记URL，此时已是最终URL）
+                        note_url = new_page.url
+                        logger.info(f"✓ 获取到小红书笔记URL: {note_url}")
+
+                        # 添加到映射字典中（使用标准化标题作为key）
+                        note_url_map[normalized_title] = note_url
+                        logger.debug(f"保存映射: {normalized_title[:30]}... -> {note_url}")
+
+                        # 在页面停留10秒左右，模拟真实浏览行为
+                        logger.info("在小红书页面停留10秒左右，模拟真实浏览...")
+                        self.human_delay(8, 12)
+
+                        # 关闭新页面
+                        new_page.close()
+                        logger.info(f"已关闭第 {index + 1} 条笔记的原文页面")
+
+                        # 增加延迟时间，避免小红书检测为异常（每20-30秒点击一次）
+                        logger.info("等待20-30秒再点击下一条，避免触发小红书异常检测...")
+                        self.human_delay(20, 30)
+
+                    except PlaywrightTimeoutError:
+                        logger.warning(f"第 {index + 1} 条笔记原文页面打开超时")
+                        continue
+                    except Exception as e:
+                        logger.error(f"处理第 {index + 1} 条笔记原文时出错: {str(e)}")
+                        continue
+
+                except Exception as e:
+                    logger.error(f"点击第 {index + 1} 条笔记原文按钮时出错: {str(e)}")
+                    continue
+
+            logger.info(f"原文链接获取完成，共获取 {len(note_url_map)} 条有效URL")
+
+            # 打印映射表摘要（用于调试）
+            if note_url_map:
+                logger.info("映射表摘要（前5条）:")
+                for i, (title_key, url) in enumerate(list(note_url_map.items())[:5]):
+                    logger.info(f"  {i+1}. {title_key[:50]}... -> {url[:60]}...")
+            else:
+                logger.warning("未获取到任何笔记URL映射！")
+
+            return note_url_map
+
         except Exception as e:
-            logger.error(f"点击第 {index + 1} 个品牌并查看详情时出错: {str(e)}")
-            # 尝试返回
-            try:
-                self.page.keyboard.press('Escape')
-                time.sleep(1)
-            except:
-                pass
-            return False
+            logger.error(f"点击笔记原文按钮时出错: {str(e)}")
+            return {}
 
     def process_organization(self, org_name):
         """处理单个机构的数据"""
@@ -1468,7 +1386,7 @@ class QianguaMcnRankSpider:
                 self.current_organization = None
                 return False
 
-            # 获取机构列表数量(最多4条)
+            # 获取机构列表数量(最多5条)
             mcn_count = self.page.evaluate('''
                 () => {
                     return Math.min(document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom').length, 5);
@@ -1479,20 +1397,24 @@ class QianguaMcnRankSpider:
 
             # 循环处理每个机构
             for mcn_index in range(min(mcn_count, 5)):
-                if org_name == '方片' and mcn_index < 4:
-                    logger.error(f"跳过处理 {org_name} 机构")
-                    mcn_index += 1
-                    continue
                 logger.info(f"处理第 {mcn_index + 1}/{mcn_count} 个机构")
+                if mcn_index == 2 or mcn_index == 0:
+                    continue
 
-                # 点击机构
+                # 点击机构(会触发GetMcnDetail接口)
                 if not self.click_mcn_item(mcn_index):
                     logger.error(f"点击第 {mcn_index + 1} 个机构失败")
                     continue
 
-                # 点击合作品牌
+                # 获取BelongMcn
+                belong_mcn = self.get_belong_mcn()
+                if not belong_mcn:
+                    logger.error(f"未能获取第 {mcn_index + 1} 个机构的BelongMcn，使用搜索名称")
+                    belong_mcn = org_name
+
+                # 点击商业合作
                 if not self.click_cooperation_brand():
-                    logger.error("点击合作品牌失败")
+                    logger.error("点击商业合作失败")
                     # 按ESC键返回
                     self.page.keyboard.press('Escape')
                     time.sleep(2)
@@ -1507,31 +1429,18 @@ class QianguaMcnRankSpider:
                         logger.error(f"选择日期范围失败: {year_month}")
                         continue
 
-                    # 点击预估合作费用排序
-                    if not self.click_sort_by_cost():
-                        logger.error("点击预估合作费用排序失败")
+                    # 滚动加载笔记数据
+                    note_count = self.scroll_to_load_notes(self.max_note_records)
+
+                    if note_count == 0:
+                        logger.warning(f"{year_month} 没有加载到笔记数据")
                         continue
 
-                    # 滚动加载品牌数据
-                    brand_count = self.scroll_to_load_brands(self.max_brand_records)
+                    # 点击每条笔记的原文按钮并获取URL（返回标题到URL的映射字典）
+                    note_url_map = self.click_note_original_links()
 
-                    if brand_count == 0:
-                        logger.warning(f"{year_month} 没有加载到品牌数据")
-                        continue
-
-                    self.save_brand_data_to_db(org_name, year_month)
-
-                    # 循环点击每个品牌
-                    actual_brand_count = min(brand_count, self.max_brand_records)
-                    for brand_index in range(actual_brand_count):
-                        logger.info(f"处理第 {brand_index + 1}/{actual_brand_count} 个品牌")
-                        self.click_brand_item_and_view(brand_index, year_month, org_name)
-                        time.sleep(2)
-
-                    # 所有品牌处理完成后,按第二次ESC返回
-                    logger.info(f"所有品牌处理完成,按第二次ESC返回...")
-                    self.page.keyboard.press('Escape')
-                    time.sleep(2)
+                    # 保存笔记数据到数据库（使用标题匹配URL）
+                    self.save_note_data_to_db(belong_mcn, year_month, note_url_map)
 
                     logger.info(f"{year_month} 月份处理完成")
 

@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from loguru import logger
 import requests
+import tkinter as tk
+from tkinter import messagebox
 
 """
     小红书创作者平台笔记爬虫
@@ -13,16 +15,369 @@ import requests
 """
 
 
+# 配置文件路径
+CONFIG_FILE = 'last_notes_selection.json'
+
+
+def load_last_selection():
+    """加载上次的选择配置"""
+    try:
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        config_file = os.path.join(base_dir, CONFIG_FILE)
+        if os.path.exists(config_file):
+            with open(config_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return {
+                    'scroll_days': data.get('scroll_days', 31),
+                    'fetch_all': data.get('fetch_all', False)
+                }
+    except Exception as e:
+        print(f"加载上次选择失败: {e}")
+    return {'scroll_days': 31, 'fetch_all': False}
+
+
+def save_selection(scroll_days, fetch_all):
+    """保存本次选择配置"""
+    try:
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        config_file = os.path.join(base_dir, CONFIG_FILE)
+        with open(config_file, 'w', encoding='utf-8') as f:
+            json.dump({
+                'scroll_days': scroll_days,
+                'fetch_all': fetch_all
+            }, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"保存选择失败: {e}")
+
+
+def show_use_last_selection_dialog():
+    """显示是否使用上次选择的对话框"""
+    last_config = load_last_selection()
+
+    def on_yes():
+        result['use_last'] = True
+        root.quit()
+        root.destroy()
+
+    def on_no():
+        result['use_last'] = False
+        root.quit()
+        root.destroy()
+
+    def on_close():
+        root.quit()
+        root.destroy()
+        sys.exit(0)
+
+    result = {'use_last': False}
+
+    root = tk.Tk()
+    root.title("小红书创作者笔记 - 使用上次选择")
+    root.geometry("600x450")
+    root.configure(bg='#f5f5f5')
+    root.protocol("WM_DELETE_WINDOW", on_close)
+
+    # 标题
+    title_frame = tk.Frame(root, bg='#FF2442', height=80)
+    title_frame.pack(fill='x')
+    title_frame.pack_propagate(False)
+
+    title_label = tk.Label(
+        title_frame,
+        text="💡 使用上次选择?",
+        font=("Microsoft YaHei UI", 18, "bold"),
+        bg='#FF2442',
+        fg='white'
+    )
+    title_label.pack(pady=20)
+
+    # 说明
+    instruction_frame = tk.Frame(root, bg='#f5f5f5')
+    instruction_frame.pack(pady=20)
+
+    instruction_label = tk.Label(
+        instruction_frame,
+        text="检测到上次选择的配置",
+        font=("Microsoft YaHei UI", 14),
+        bg='#f5f5f5',
+        fg='#333'
+    )
+    instruction_label.pack()
+
+    hint_label = tk.Label(
+        instruction_frame,
+        text="是否继续使用上次的配置?",
+        font=("Microsoft YaHei UI", 12),
+        bg='#f5f5f5',
+        fg='#666'
+    )
+    hint_label.pack(pady=10)
+
+    # 显示上次配置
+    list_frame = tk.Frame(root, bg='#f5f5f5')
+    list_frame.pack(pady=10, fill='x', padx=30)
+
+    if last_config['fetch_all']:
+        config_text = "📋 上次配置: 抓取所有笔记"
+    else:
+        config_text = f"📋 上次配置: 抓取最近 {last_config['scroll_days']} 天的笔记"
+
+    list_text = tk.Text(
+        list_frame,
+        height=3,
+        state='normal',
+        font=("Microsoft YaHei UI", 11),
+        bg='#FFF9C4',
+        relief='solid',
+        bd=1,
+        wrap='word'
+    )
+    list_text.pack(fill='x')
+    list_text.insert(1.0, config_text)
+    list_text.config(state='disabled')
+
+    # 按钮
+    button_frame = tk.Frame(root, bg='#f5f5f5')
+    button_frame.pack(pady=20)
+
+    yes_btn = tk.Button(
+        button_frame,
+        text="✓ 是,使用上次配置",
+        width=18,
+        height=2,
+        font=("Microsoft YaHei UI", 11, "bold"),
+        bg='#4CAF50',
+        fg='white',
+        relief='raised',
+        bd=0,
+        cursor='hand2',
+        activebackground='#388E3C',
+        command=on_yes
+    )
+    yes_btn.pack(side='left', padx=15)
+
+    no_btn = tk.Button(
+        button_frame,
+        text="✗ 否,重新配置",
+        width=18,
+        height=2,
+        font=("Microsoft YaHei UI", 11, "bold"),
+        bg='#FF9800',
+        fg='white',
+        relief='raised',
+        bd=0,
+        cursor='hand2',
+        activebackground='#F57C00',
+        command=on_no
+    )
+    no_btn.pack(side='left', padx=15)
+
+    # 居中显示
+    root.update_idletasks()
+    width = root.winfo_width()
+    height = root.winfo_height()
+    x = (root.winfo_screenwidth() // 2) - (width // 2)
+    y = (root.winfo_screenheight() // 2) - (height // 2)
+    root.geometry(f'{width}x{height}+{x}+{y}')
+
+    root.mainloop()
+
+    return last_config if result['use_last'] else None
+
+
+
+def show_selection_dialog():
+    """显示抓取配置选择对话框"""
+    result = {'scroll_days': 31, 'fetch_all': False, 'confirmed': False}
+
+    def on_confirm():
+        days_str = days_entry.get().strip()
+        if not result['fetch_all']:
+            if not days_str:
+                messagebox.showwarning("提示", "请输入抓取天数!")
+                return
+            try:
+                days = int(days_str)
+                if days < 1:
+                    messagebox.showwarning("提示", "天数必须大于0!")
+                    return
+                result['scroll_days'] = days
+            except ValueError:
+                messagebox.showwarning("提示", "请输入有效的数字!")
+                return
+        result['confirmed'] = True
+        root.quit()
+        root.destroy()
+
+    def on_fetch_all_toggle():
+        """切换抓取所有笔记选项"""
+        if fetch_all_var.get():
+            result['fetch_all'] = True
+            days_entry.config(state='disabled')
+            days_label.config(fg='#999')
+        else:
+            result['fetch_all'] = False
+            days_entry.config(state='normal')
+            days_label.config(fg='#333')
+
+    def on_close():
+        root.quit()
+        root.destroy()
+        sys.exit(0)
+
+    root = tk.Tk()
+    root.title("小红书创作者笔记 - 抓取配置")
+    root.geometry("550x420")
+    root.configure(bg='#f5f5f5')
+    root.protocol("WM_DELETE_WINDOW", on_close)
+
+    # 标题
+    title_frame = tk.Frame(root, bg='#FF2442', height=80)
+    title_frame.pack(fill='x')
+    title_frame.pack_propagate(False)
+
+    title_label = tk.Label(
+        title_frame,
+        text="📝 笔记抓取配置",
+        font=("Microsoft YaHei UI", 18, "bold"),
+        bg='#FF2442',
+        fg='white'
+    )
+    title_label.pack(pady=20)
+
+    # 说明
+    instruction_frame = tk.Frame(root, bg='#f5f5f5')
+    instruction_frame.pack(pady=20)
+
+    instruction_label = tk.Label(
+        instruction_frame,
+        text="请选择要抓取的笔记范围",
+        font=("Microsoft YaHei UI", 13),
+        bg='#f5f5f5',
+        fg='#333'
+    )
+    instruction_label.pack()
+
+    # 抓取所有笔记选项
+    fetch_all_frame = tk.Frame(root, bg='#f5f5f5')
+    fetch_all_frame.pack(pady=15)
+
+    fetch_all_var = tk.BooleanVar()
+    fetch_all_var.set(False)
+
+    fetch_all_check = tk.Checkbutton(
+        fetch_all_frame,
+        text="🔄 抓取所有笔记 (无限滚动直到没有笔记)",
+        font=("Microsoft YaHei UI", 12, "bold"),
+        bg='#f5f5f5',
+        fg='#FF2442',
+        activebackground='#f5f5f5',
+        activeforeground='#FF2442',
+        selectcolor='#f5f5f5',
+        variable=fetch_all_var,
+        command=on_fetch_all_toggle,
+        cursor='hand2'
+    )
+    fetch_all_check.pack()
+
+    # 天数输入
+    days_frame = tk.Frame(root, bg='#f5f5f5')
+    days_frame.pack(pady=10)
+
+    days_label = tk.Label(
+        days_frame,
+        text="📅 抓取最近多少天的笔记:",
+        font=("Microsoft YaHei UI", 11),
+        bg='#f5f5f5',
+        fg='#333'
+    )
+    days_label.grid(row=0, column=0, padx=10, sticky='e')
+
+    days_entry = tk.Entry(
+        days_frame,
+        width=10,
+        font=("Microsoft YaHei UI", 11),
+        relief='solid',
+        bd=1
+    )
+    days_entry.grid(row=0, column=1, padx=10)
+    days_entry.insert(0, "31")
+
+    days_hint = tk.Label(
+        days_frame,
+        text="天",
+        font=("Microsoft YaHei UI", 11),
+        bg='#f5f5f5',
+        fg='#666'
+    )
+    days_hint.grid(row=0, column=2, padx=5, sticky='w')
+
+    # 提示
+    hint_frame = tk.Frame(root, bg='#f5f5f5')
+    hint_frame.pack(pady=10)
+
+    hint_label = tk.Label(
+        hint_frame,
+        text="💡 提示: 如果选择抓取所有笔记，将忽略天数限制",
+        font=("Microsoft YaHei UI", 9),
+        bg='#f5f5f5',
+        fg='#999'
+    )
+    hint_label.pack()
+
+    # 按钮
+    button_frame = tk.Frame(root, bg='#f5f5f5')
+    button_frame.pack(pady=20)
+
+    confirm_btn = tk.Button(
+        button_frame,
+        text="✓ 确认开始抓取",
+        width=16,
+        height=2,
+        font=("Microsoft YaHei UI", 11, "bold"),
+        bg='#FF2442',
+        fg='white',
+        relief='raised',
+        bd=0,
+        cursor='hand2',
+        activebackground='#D41D36',
+        command=on_confirm
+    )
+    confirm_btn.pack()
+
+    # 居中显示
+    root.update_idletasks()
+    width = root.winfo_width()
+    height = root.winfo_height()
+    x = (root.winfo_screenwidth() // 2) - (width // 2)
+    y = (root.winfo_screenheight() // 2) - (height // 2)
+    root.geometry(f'{width}x{height}+{x}+{y}')
+
+    root.mainloop()
+
+    if result['confirmed']:
+        return result
+    return None
+
+
+
 class XiaohongshuCreatorSpider:
     # 常量
     HOME_URL = "https://creator.xiaohongshu.com/new/home"
     NOTE_MANAGER_URL = "https://creator.xiaohongshu.com/new/note-manager"
-    API_URL = "https://edith.xiaohongshu.com/web_api/sns/v5/creator/note/user/posted"
-    SCROLL_DAYS = 31  # 抓取天数
+    API_URL = "creator/note/user/posted"
     MAX_LOGIN_WAIT = 300  # 最大登录等待时间(秒)
     CHECK_INTERVAL = 5  # 登录检查间隔(秒)
 
-    def __init__(self):
+    def __init__(self, scroll_days=31, fetch_all=False):
         self.base_dir = self._get_base_dir()
         self.cookie_file = os.path.join(self.base_dir, 'creator_cookies.json')
         self.data_dir = os.path.join(self.base_dir, 'data')
@@ -35,6 +390,10 @@ class XiaohongshuCreatorSpider:
         self.note_manager_url = self.NOTE_MANAGER_URL
         self.api_url = self.API_URL
 
+        # 抓取配置
+        self.scroll_days = scroll_days
+        self.fetch_all = fetch_all
+
         # 保存接口配置
         self.save_api_url = "https://tianji.fangpian999.com/api/admin/blogger/saveCrawlerNotes"
         # self.save_api_url = "http://localhost:5666/api/admin/blogger/saveCrawlerNotes"
@@ -44,6 +403,7 @@ class XiaohongshuCreatorSpider:
         self.notes_data = []
         self.api_responses = []
         self.red_num = None
+        self.fans_count = 0
 
         self.setup_logger()
         self.setup_browser()
@@ -101,14 +461,12 @@ class XiaohongshuCreatorSpider:
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
         )
 
-        # 尝试加载已保存的Cookie
+        self.page = self.context.new_page()
         if self._load_cookies():
-            self.page = self.context.new_page()
             try:
-                self.page.goto(self.home_url)
-                time.sleep(3)
+                self.page.goto(self.home_url, wait_until='domcontentloaded', timeout=30000)
+                self._wait_for_home_ready()
 
-                # 检查是否存在用户头像元素（登录成功的标志）
                 user_avatar = self.page.locator('.user_avatar').first
                 if user_avatar.is_visible(timeout=5000):
                     self.is_logged_in = True
@@ -121,24 +479,36 @@ class XiaohongshuCreatorSpider:
                 self.is_logged_in = False
         else:
             logger.info("未找到Cookie文件，需要登录")
-            self.page = self.context.new_page()
+            self.page.goto(self.home_url, wait_until='domcontentloaded', timeout=30000)
+            self._wait_for_home_ready()
             self.is_logged_in = False
 
         self.page.set_default_timeout(30000)
         # 设置响应监听
         self.page.on("response", self._handle_api_response)
 
+
     def login(self):
         """手动登录流程"""
         if self.is_logged_in:
             logger.info("已处于登录状态")
+            try:
+                if self.home_url not in self.page.url:
+                    self.page.goto(self.home_url, wait_until='domcontentloaded', timeout=30000)
+                self._wait_for_home_ready(timeout_ms=30000)
+                self._wait_for_home_identity_ready(timeout_ms=30000)
+                if not self._sync_home_identity(max_attempts=4, wait_seconds=2):
+                    logger.warning("已登录，但首页身份信息暂未完全加载，抓取阶段会再次重试")
+            except Exception as e:
+                logger.warning(f"已登录状态下同步首页信息失败: {str(e)}")
             return True
 
         logger.info(f"开始等待用户手动登录，请在{self.MAX_LOGIN_WAIT//60}分钟内完成登录操作")
 
         try:
-            self.page.goto(self.home_url)
-            time.sleep(3)
+            if self.home_url not in self.page.url:
+                self.page.goto(self.home_url, wait_until='domcontentloaded', timeout=30000)
+                self._wait_for_home_ready()
 
             for elapsed in range(0, self.MAX_LOGIN_WAIT, self.CHECK_INTERVAL):
                 try:
@@ -147,6 +517,18 @@ class XiaohongshuCreatorSpider:
                         logger.info("检测到登录成功！")
                         self.is_logged_in = True
                         self._save_cookies()
+
+                        if self.home_url not in self.page.url:
+                            logger.info(f"登录后跳回首页: {self.home_url}")
+                            self.page.goto(self.home_url, wait_until='domcontentloaded', timeout=30000)
+                            self._wait_for_home_ready()
+                        else:
+                            self._wait_for_home_ready(timeout_ms=30000)
+
+                        self._wait_for_home_identity_ready(timeout_ms=30000)
+                        if not self._sync_home_identity(max_attempts=8, wait_seconds=2):
+                            logger.warning("登录成功，但首页身份信息暂未完全提取到，抓取阶段会再次重试")
+
                         return True
                 except:
                     pass
@@ -174,6 +556,11 @@ class XiaohongshuCreatorSpider:
                     data = response.json()
                     logger.info(f"捕获到接口数据，状态码: {response.status}")
 
+                    try:
+                        self.page.evaluate("window.__xhs_notes_api_ready = true")
+                    except Exception:
+                        pass
+
                     # 存储API响应
                     self.api_responses.append({
                         'url': url,
@@ -188,9 +575,290 @@ class XiaohongshuCreatorSpider:
         except Exception as e:
             logger.error(f"处理API响应时出错: {str(e)}")
 
+    @staticmethod
+    def _parse_chinese_count(value):
+        """将中文数量文本转为整数（如 1.7万 -> 17000）"""
+        if value is None:
+            return 0
+        text = str(value).strip().replace(",", "")
+        if not text:
+            return 0
+        multiplier = 1
+        if text.endswith("万"):
+            multiplier = 10000
+            text = text[:-1]
+        elif text.endswith("亿"):
+            multiplier = 100000000
+            text = text[:-1]
+        try:
+            return int(float(text) * multiplier)
+        except Exception:
+            return 0
+
+    def _wait_for_home_ready(self, timeout_ms=15000):
+        """等待首页关键元素渲染完成"""
+        try:
+            self.page.wait_for_function(
+                """() => {
+                    const bodyText = document.body && document.body.innerText
+                        ? document.body.innerText.trim()
+                        : '';
+                    return !!document.querySelector('.user_avatar')
+                        || !!document.querySelector('.user-name')
+                        || !!document.querySelector('.user-desc')
+                        || !!document.querySelector('.user-redId')
+                        || !!document.querySelector('.user-interactions')
+                        || !!document.querySelector('.static.description-text')
+                        || bodyText.length > 20;
+                }""",
+                timeout=timeout_ms
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"等待首页关键元素超时: {str(e)}")
+            return False
+
+    def _wait_for_home_identity_ready(self, timeout_ms=20000):
+        """等待首页身份信息渲染完成，至少出现小红书号或统计块"""
+        try:
+            self.page.wait_for_function(
+                """() => {
+                    const normalize = (value) => (value || '').replace(/\\s+/g, ' ').trim();
+                    const redIdEl = document.querySelector('.user-redId');
+                    const descEl = document.querySelector('.user-desc');
+                    const statsEl = document.querySelector('.static.description-text');
+                    const interactionsEl = document.querySelector('.user-interactions');
+                    const bodyText = normalize(document.body && document.body.innerText ? document.body.innerText : '');
+                    const redIdText = normalize(redIdEl && redIdEl.textContent ? redIdEl.textContent : '');
+                    const descText = normalize(descEl && descEl.textContent ? descEl.textContent : '');
+                    const statsText = normalize(
+                        statsEl && statsEl.textContent
+                            ? statsEl.textContent
+                            : interactionsEl && interactionsEl.textContent
+                                ? interactionsEl.textContent
+                                : ''
+                    );
+                    return !!redIdText
+                        || descText.includes('小红书号')
+                        || bodyText.includes('小红书号')
+                        || (statsText.includes('粉丝') && (statsText.includes('关注') || statsText.includes('获赞') || statsText.includes('收藏')));
+                }""",
+                timeout=timeout_ms
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"等待首页身份信息超时: {str(e)}")
+            return False
+
+    def _extract_home_basic_info(self):
+        """从首页提取小红书号、粉丝数等基础信息"""
+        try:
+            script = """() => {
+                const normalize = (value) => (value || '').replace(/\\s+/g, ' ').trim();
+                const stripPrefix = (value, prefixes) => {
+                    let text = normalize(value);
+                    for (const prefix of prefixes) {
+                        text = text.replace(prefix, '').trim();
+                    }
+                    return text;
+                };
+
+                const result = {
+                    nickname: '',
+                    red_id: '',
+                    desc: '',
+                    following_text: '',
+                    fans_text: '',
+                    liked_collected_text: '',
+                    stats_ready: false
+                };
+
+                const nicknameEl = document.querySelector('.user-name');
+                const redIdEl = document.querySelector('.user-redId');
+                const descEl = document.querySelector('.user-desc');
+
+                if (nicknameEl) {
+                    result.nickname = normalize(nicknameEl.textContent);
+                }
+
+                if (descEl) {
+                    result.desc = normalize(descEl.textContent);
+                }
+
+                if (redIdEl) {
+                    result.red_id = stripPrefix(redIdEl.textContent, [
+                        '小红书号：',
+                        '小红书号:',
+                        '小红书账号：',
+                        '小红书账号:'
+                    ]);
+                }
+
+                const applyStat = (label, value) => {
+                    const textLabel = normalize(label);
+                    const textValue = normalize(value);
+                    if (!textLabel) {
+                        return;
+                    }
+                    if (textLabel.includes('关注') && !result.following_text) {
+                        result.following_text = textValue;
+                    } else if (textLabel.includes('粉丝') && !result.fans_text) {
+                        result.fans_text = textValue;
+                    } else if ((textLabel.includes('获赞') || textLabel.includes('收藏')) && !result.liked_collected_text) {
+                        result.liked_collected_text = textValue;
+                    }
+
+                    if (textLabel.includes('关注') || textLabel.includes('粉丝') || textLabel.includes('获赞') || textLabel.includes('收藏')) {
+                        result.stats_ready = true;
+                    }
+                };
+
+                const statBlocks = Array.from(document.querySelectorAll(
+                    '.static.description-text > div, .user-interactions > div, [class*="interactions"] > div'
+                ));
+
+                for (const block of statBlocks) {
+                    const numberEl = block.querySelector('.numerical, .count');
+                    const labelEl = block.querySelector('.shows');
+                    const numberText = normalize(numberEl ? numberEl.textContent : '');
+                    let labelText = normalize(labelEl ? labelEl.textContent : '');
+
+                    if (!labelText) {
+                        const spanTexts = Array.from(block.querySelectorAll('span'))
+                            .map((el) => normalize(el.textContent))
+                            .filter(Boolean);
+                        if (spanTexts.length >= 2) {
+                            labelText = normalize(spanTexts.slice(1).join(''));
+                        } else {
+                            const blockText = normalize(block.textContent);
+                            labelText = numberText ? normalize(blockText.replace(numberText, '')) : blockText;
+                        }
+                    }
+
+                    applyStat(labelText, numberText);
+                }
+
+                const textSources = [
+                    result.desc,
+                    normalize(document.body && document.body.innerText ? document.body.innerText : '')
+                ].filter(Boolean);
+
+                if (!result.red_id) {
+                    const redPatterns = [
+                        /小红书号\\s*[:：]\\s*([a-zA-Z0-9_\\-]+)/,
+                        /小红书账号\\s*[:：]\\s*([a-zA-Z0-9_\\-]+)/
+                    ];
+                    for (const text of textSources) {
+                        for (const pattern of redPatterns) {
+                            const match = text.match(pattern);
+                            if (match && match[1]) {
+                                result.red_id = normalize(match[1]);
+                                break;
+                            }
+                        }
+                        if (result.red_id) {
+                            break;
+                        }
+                    }
+                }
+
+                if (!result.fans_text) {
+                    const fansPatterns = [
+                        /粉丝数\\s*[:：]?\\s*(\\d+(?:\\.\\d+)?(?:万|亿)?)/,
+                        /粉丝\\s*[:：]?\\s*(\\d+(?:\\.\\d+)?(?:万|亿)?)/
+                    ];
+                    for (const text of textSources) {
+                        for (const pattern of fansPatterns) {
+                            const match = text.match(pattern);
+                            if (match && match[1]) {
+                                result.fans_text = normalize(match[1]);
+                                result.stats_ready = true;
+                                break;
+                            }
+                        }
+                        if (result.fans_text) {
+                            break;
+                        }
+                    }
+                }
+
+                return result;
+            }"""
+            info = self.page.evaluate(script)
+            return info if isinstance(info, dict) else {}
+        except Exception as e:
+            logger.warning(f"从首页提取基础信息失败: {str(e)}")
+            return {}
+
+    def _sync_home_identity(self, max_attempts=6, wait_seconds=2):
+        """循环等待首页身份信息加载完成，并同步到实例字段"""
+        last_info = {}
+
+        for attempt in range(1, max_attempts + 1):
+            last_info = self._extract_home_basic_info()
+            red_id = str(last_info.get('red_id') or '').strip()
+            fans_text = str(last_info.get('fans_text') or '').strip()
+
+            if red_id:
+                self.red_num = red_id
+
+            if fans_text:
+                self.fans_count = self._parse_chinese_count(fans_text)
+
+            if red_id and self.fans_count > 0:
+                logger.info(f"✅ 首页信息获取成功: 小红书号={self.red_num}, 粉丝数={fans_text} ({self.fans_count})")
+                return True
+
+            logger.info(
+                f"首页信息第{attempt}/{max_attempts}次检测: "
+                f"小红书号={red_id or '空'}, 粉丝原始值={fans_text or '空'}"
+            )
+
+            if attempt < max_attempts:
+                try:
+                    self.page.wait_for_load_state('domcontentloaded', timeout=3000)
+                except Exception:
+                    pass
+                time.sleep(wait_seconds)
+
+        if self.red_num:
+            logger.warning(
+                f"首页已获取到小红书号 {self.red_num}，"
+                f"但粉丝数仍未稳定，当前按 {self.fans_count} 继续"
+            )
+            return True
+
+        logger.error(
+            f"首页身份信息加载失败: 小红书号={str(last_info.get('red_id') or '').strip() or '空'}, "
+            f"粉丝原始值={str(last_info.get('fans_text') or '').strip() or '空'}"
+        )
+        return False
+
+    def _wait_for_notes_api_ready(self, timeout_ms=20000):
+        """等待笔记列表接口至少返回一次"""
+        try:
+            self.page.wait_for_function(
+                "() => window.__xhs_notes_api_ready === true",
+                timeout=timeout_ms
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"等待笔记接口返回超时: {str(e)}")
+            return False
+
+    def _extract_fans_count_from_page(self):
+        """从 home 页面提取粉丝数，兼容不同 DOM 结构"""
+        info = self._extract_home_basic_info()
+        return str(info.get('fans_text') or '').strip()
+
     def scrape_notes(self):
         """抓取笔记数据"""
         logger.info("开始抓取笔记数据...")
+
+        if self.fetch_all:
+            logger.info("🔄 模式: 抓取所有笔记 (无限滚动)")
+        else:
+            logger.info(f"📅 模式: 抓取最近 {self.scroll_days} 天的笔记")
 
         try:
             if not self.is_logged_in:
@@ -201,51 +869,28 @@ class XiaohongshuCreatorSpider:
             self.api_responses.clear()
             self.notes_data.clear()
 
-            # 访问 home 页面
-            logger.info(f"访问home页面: {self.home_url}")
-            self.page.goto(self.home_url)
+            logger.info(f"当前页面: {self.page.url}")
+            if self.home_url not in self.page.url:
+                logger.info(f"当前不在首页，跳转: {self.home_url}")
+                self.page.goto(self.home_url, wait_until='domcontentloaded', timeout=30000)
+            self._wait_for_home_ready(timeout_ms=30000)
+            self._wait_for_home_identity_ready(timeout_ms=30000)
 
-            # 等待页面加载
-            try:
-                self.page.wait_for_load_state('domcontentloaded', timeout=10000)
-                time.sleep(2)
-            except:
-                time.sleep(3)
-
-            # 从页面元素获取小红书号
-            try:
-                red_num = self.page.evaluate('''() => {
-                    // 查找包含"小红书账号"的元素
-                    const elements = document.querySelectorAll('*');
-                    for (const el of elements) {
-                        const text = el.textContent;
-                        if (text && text.includes('小红书账号')) {
-                            const match = text.match(/小红书账号[::：]\\s*(\\d+)/);
-                            if (match) return match[1];
-                        }
-                    }
-                    return '';
-                }''')
-
-                if red_num:
-                    self.red_num = str(red_num)
-                    logger.info(f"✅ 从页面获取到小红书号: {self.red_num}")
-                else:
-                    logger.warning("⚠️ 未能从页面找到小红书账号")
-            except Exception as e:
-                logger.warning(f"从页面获取小红书号失败: {str(e)}")
+            if not self._sync_home_identity(max_attempts=8, wait_seconds=2):
+                logger.error("首页未加载完成，未获取到小红书号，停止进入笔记管理页")
+                return False
 
             # 访问笔记管理页面
             logger.info(f"访问笔记管理页面: {self.note_manager_url}")
-            self.page.goto(self.note_manager_url)
-
-            # 等待页面加载
             try:
-                self.page.wait_for_load_state('networkidle', timeout=5000)
-            except:
+                self.page.evaluate("window.__xhs_notes_api_ready = false")
+            except Exception:
                 pass
+            self.page.goto(self.note_manager_url, wait_until='domcontentloaded', timeout=30000)
 
-            time.sleep(4)
+            if not self._wait_for_notes_api_ready(timeout_ms=30000):
+                logger.error("笔记管理页加载超时，未等到笔记列表接口返回")
+                return False
 
             # 记录上次响应数量，用于检测是否有新数据
             last_response_count = 0
@@ -273,7 +918,8 @@ class XiaohongshuCreatorSpider:
                             last_note = notes[-1]
                             note_time_str = last_note.get('time', '')
 
-                            if note_time_str:
+                            # 如果不是抓取所有笔记，则检查时间
+                            if not self.fetch_all and note_time_str:
                                 try:
                                     # 解析时间
                                     if isinstance(note_time_str, str) and '-' in note_time_str:
@@ -285,15 +931,15 @@ class XiaohongshuCreatorSpider:
                                         note_time = datetime.fromtimestamp(int(note_time_str) / 1000)
 
                                     # 计算截止日期
-                                    cutoff_date = datetime.now() - timedelta(days=self.SCROLL_DAYS)
+                                    cutoff_date = datetime.now() - timedelta(days=self.scroll_days)
 
-                                    logger.info(f"最后一条笔记时间: {note_time}, 对比{self.SCROLL_DAYS}天前: {cutoff_date}")
+                                    logger.info(f"最后一条笔记时间: {note_time}, 对比{self.scroll_days}天前: {cutoff_date}")
 
                                     if note_time < cutoff_date:
-                                        logger.info(f"最后一条笔记已超过{self.SCROLL_DAYS}天，停止滚动")
+                                        logger.info(f"最后一条笔记已超过{self.scroll_days}天，停止滚动")
                                         break
                                     else:
-                                        logger.info(f"最后一条笔记在{self.SCROLL_DAYS}天内，继续滚动")
+                                        logger.info(f"最后一条笔记在{self.scroll_days}天内，继续滚动")
 
                                 except Exception as e:
                                     logger.warning(f"解析时间失败: {str(e)}")
@@ -330,6 +976,11 @@ class XiaohongshuCreatorSpider:
             logger.error(f"抓取笔记数据时出错: {str(e)}")
             return False
 
+    def _extract_red_num_from_page(self):
+        """从 home 页面提取小红书号，兼容页面慢加载与文案变化"""
+        info = self._extract_home_basic_info()
+        return str(info.get('red_id') or '').strip()
+
     def _scroll_to_bottom(self):
         """滚动到页面底部"""
         try:
@@ -351,9 +1002,10 @@ class XiaohongshuCreatorSpider:
             self.page.mouse.move(x, y)
 
             # 模拟滚轮滚动（每次滚动500像素）
-            self.page.mouse.wheel(0, 500)
+            self.page.mouse.wheel(0, 1000)
+            time.sleep(2)
 
-            logger.info(f"鼠标滚轮滚动: x={x}, y={y}, delta=500")
+            logger.info(f"鼠标滚轮滚动: x={x}, y={y}, delta=1000")
         except Exception as e:
             logger.warning(f"滚轮滚动出错: {str(e)}")
 
@@ -388,36 +1040,38 @@ class XiaohongshuCreatorSpider:
 
         for note in self.notes_data:
             # 获取images_list的第一张图片url
-            images_list = note.get('images_list', [])
-            cover_url = images_list[0].get('url', '') if images_list else ''
+            images_list = note.get("images_list", [])
+            cover_url = images_list[0].get("url", "") if images_list else ""
 
             formatted_note = {
-                'likes': note.get('likes', 0),
-                'shared_count': note.get('shared_count', 0),
-                'view_count': note.get('view_count', 0),
-                'collected_count': note.get('collected_count', 0),
-                'xsec_token': note.get('xsec_token', ''),
-                'cover_url': cover_url,
-                'id': note.get('id', ''),
-                'display_title': note.get('display_title', ''),
-                'time': note.get('time', ''),
-                'type': note.get('type', ''),
-                'comments_count': note.get('comments_count', 0)
+                "likes": note.get("likes", 0),
+                "shared_count": note.get("shared_count", 0),
+                "view_count": note.get("view_count", 0),
+                "collected_count": note.get("collected_count", 0),
+                "xsec_token": note.get("xsec_token", ""),
+                "cover_url": cover_url,
+                "id": note.get("id", ""),
+                "display_title": note.get("display_title", ""),
+                "time": note.get("time", ""),
+                "type": note.get("type", ""),
+                "permission_code": note.get("permission_code", ""),
+                "comments_count": note.get("comments_count", 0)
             }
             formatted_notes.append(formatted_note)
 
         # 组装最终数据结构
         result = {
-            'reid_id': str(self.red_num) if self.red_num else '',
-            'notes': formatted_notes
+            "reid_id": str(self.red_num) if self.red_num else "",
+            "fans_count": self.fans_count,
+            "notes": formatted_notes
         }
 
         # 记录格式化后的数据到日志
-        logger.info(f"{'='*80}")
+        logger.info("=" * 80)
         logger.info(f"格式化后的笔记数据 (共 {len(formatted_notes)} 条):")
-        logger.info(f"{'='*80}")
+        logger.info("=" * 80)
         logger.info(json.dumps(result, ensure_ascii=False, indent=2))
-        logger.info(f"{'='*80}")
+        logger.info("=" * 80)
 
         # 调用保存接口
         logger.info("开始调用保存接口...")
@@ -430,11 +1084,14 @@ class XiaohongshuCreatorSpider:
         try:
             logger.info(f"发送数据到服务器: {self.save_api_url}")
             logger.info(f"博主ID (reid_id): {data.get('reid_id')}")
+            logger.info(f"粉丝数: {data.get('fans_count', 0)}")
             logger.info(f"笔记数量: {len(data.get('notes', []))}")
 
-            headers = {
-                "Content-Type": "application/json"
-            }
+            if not str(data.get('reid_id') or '').strip():
+                logger.error("❌ 未获取到小红书号(reid_id)，跳过保存接口调用")
+                return
+
+            headers = {"Content-Type": "application/json"}
 
             response = requests.post(
                 self.save_api_url,
@@ -452,7 +1109,7 @@ class XiaohongshuCreatorSpider:
                 # 检查业务逻辑是否成功
                 if result.get('code') == 200:
                     data_info = result.get('data', {})
-                    logger.info(f"✅ 保存成功统计:")
+                    logger.info("✅ 保存成功统计:")
                     logger.info(f"  - 接收总数: {data_info.get('total', 0)}")
                     logger.info(f"  - 新增笔记: {data_info.get('insert', 0)}")
                     logger.info(f"  - 更新笔记: {data_info.get('update', 0)}")
@@ -549,8 +1206,30 @@ def main():
     """主函数"""
     spider = None
     try:
+        # 首先检查是否有上次的配置
+        last_config = show_use_last_selection_dialog()
+
+        if last_config:
+            # 使用上次配置
+            scroll_days = last_config['scroll_days']
+            fetch_all = last_config['fetch_all']
+            logger.info(f"✅ 使用上次配置: {'抓取所有笔记' if fetch_all else f'抓取最近{scroll_days}天笔记'}")
+        else:
+            # 显示配置选择对话框
+            config = show_selection_dialog()
+            if not config:
+                logger.error("未选择配置，程序退出")
+                return False
+
+            scroll_days = config['scroll_days']
+            fetch_all = config['fetch_all']
+
+            # 保存本次配置
+            save_selection(scroll_days, fetch_all)
+            logger.info(f"✅ 保存配置: {'抓取所有笔记' if fetch_all else f'抓取最近{scroll_days}天笔记'}")
+
         # 初始化爬虫
-        spider = XiaohongshuCreatorSpider()
+        spider = XiaohongshuCreatorSpider(scroll_days=scroll_days, fetch_all=fetch_all)
         logger.info("爬虫实例初始化成功")
 
         # 执行登录

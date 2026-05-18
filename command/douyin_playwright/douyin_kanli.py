@@ -1,4 +1,4 @@
-import configparser
+﻿import configparser
 import json
 import os
 import time
@@ -34,6 +34,7 @@ def get_base_path():
     except Exception:
         return os.path.abspath("../..")
 
+
 def get_resource_path(relative_path):
     """获取资源文件路径，支持exe打包"""
     try:
@@ -42,6 +43,7 @@ def get_resource_path(relative_path):
     except Exception:
         base_path = os.path.abspath("../../WeekAccountUpdate")
     return os.path.join(base_path, relative_path)
+
 
 def load_config():
     """加载配置文件"""
@@ -69,8 +71,9 @@ def load_config():
     # 解析配置
     return {
         'PGY_LOGIN_CONFIG': {
-            'id': config.get('PGY_LOGIN', 'id'),
-            # 'page_size': config.get('PGY_LOGIN', 'page_size')
+            'page': config.get('PGY_LOGIN', 'page'),
+            'type': config.get('PGY_LOGIN', 'type'),
+            'page_size': config.get('PGY_LOGIN', 'page_size')
         },
         'SCHEDULER_CONFIG': {
             'enable_scheduler': config.getboolean('SCHEDULER', 'enable_scheduler'),
@@ -79,6 +82,7 @@ def load_config():
             'check_interval': config.getint('SCHEDULER', 'check_interval')
         }
     }
+
 
 class DouYinSpider:
     def __init__(self):
@@ -106,15 +110,30 @@ class DouYinSpider:
         self.kol_api_data = {}
         self.other_api_data = {}
         self.yingxiao_api_data = []  # 营销传播数据数组
+        # 初始化空的payload结构
+        self.payload = {
+            "apis": [
+                {"tb_name": "blogger_note_detail", "tb_data": []}
+            ],
+            "client_id": 1
+        }
 
         # 企业微信webhook地址
         self.webhook_url = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=b3b0cdf5-62b6-49d7-80d7-6f741c3c2c4d"
+
+        # 当天已处理的博主ID存储
+        self.processed_kols_file = os.path.join(base_path, 'processed_kols_today.json')
+        self.processed_kols_today = set()  # 当天已处理的博主ID集合
+        self.current_date = datetime.now().strftime('%Y-%m-%d')  # 当前日期
 
         # 浏览器相关属性初始化
         self.playwright = None
         self.browser = None
         self.context = None
         self.page = None
+
+        # 加载当天已处理的博主ID
+        self._load_processed_kols()
 
     def scrape_user_notes(self, kol_name: str, kol_url: str, star_id: str) -> int:
         """抓取指定KOL的笔记信息并匹配更新数据库
@@ -128,7 +147,7 @@ class DouYinSpider:
                 return 0
 
             user_id = star_id  # 定义 user_id 供后续使用
-            self.current_kol = {'name': kol_name, 'url': kol_url, 'user_id':star_id}
+            self.current_kol = {'name': kol_name, 'url': kol_url, 'user_id': star_id}
             self.processed_api_responses.clear()
             # 完全重置营销信息，确保数据隔离
             self.marketing_info = {'user_id': star_id}
@@ -138,6 +157,12 @@ class DouYinSpider:
             self.kol_api_data = {}
             self.other_api_data = {}
             self.yingxiao_api_data = []  # 重置营销传播数组
+            self.payload = {
+                "apis": [
+                    {"tb_name": "blogger_note_detail", "tb_data": []}
+                ],
+                "client_id": 1
+            }
             # 添加API响应处理标志
             self.api_response_processed = False
 
@@ -150,7 +175,7 @@ class DouYinSpider:
             except Exception as e:
                 self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-            self.common.random_sleep(3, 4)
+            self.common.random_sleep(4, 6)
 
             # 添加验证码检测
             if not self.check_and_handle_captcha():
@@ -173,8 +198,6 @@ class DouYinSpider:
                 elif '/api/aggregator/get_author_commerce_spread_info' in api_url:
                     self._process_author_commerce_info(response_data)
 
-
-
             # ===== 新增：点击商业能力并处理视频类型 =====
             try:
                 self.logger.info("开始处理商业能力的视频类型...")
@@ -189,7 +212,7 @@ class DouYinSpider:
                         self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
                     self.api_data = {}
-                    time.sleep(0.5)
+                    self.common.random_sleep(1, 2)
                     business_ability_tab.click()
                     self.logger.info("成功点击商业能力标签")
 
@@ -199,7 +222,7 @@ class DouYinSpider:
                     except Exception as e:
                         self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-                    self.common.random_sleep(3, 4)  # 增加3-4秒延迟，避免操作过快
+                    self.common.random_sleep(4, 6)  # 增加3-4秒延迟，避免操作过快
 
                     # 检测并处理验证码
                     if not self.check_and_handle_captcha():
@@ -253,7 +276,7 @@ class DouYinSpider:
                                 except Exception as e:
                                     self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-                                self.common.random_sleep(3, 4)  # 增加3-4秒延迟
+                                self.common.random_sleep(4, 6)  # 增加3-4秒延迟
 
                             # 等待并标记为获取星图视频数据
                             self.current_video_type = 'xingtu'  # 标记当前视频类型
@@ -302,7 +325,8 @@ class DouYinSpider:
                                 if 'data' not in response_info:
                                     continue
                                 # 判断条件改为：包含 type=2 或 only_assign=true
-                                if '/api/data_sp/get_author_spread_info' in api_url and ('type=2' in api_url or 'only_assign=true' in api_url):
+                                if '/api/data_sp/get_author_spread_info' in api_url and (
+                                        'type=2' in api_url or 'only_assign=true' in api_url):
                                     xingtu_spread_apis.append((api_url, response_info))
 
                             self.logger.info(f"找到 {len(xingtu_spread_apis)} 个星图 spread_info API")
@@ -342,12 +366,14 @@ class DouYinSpider:
                             for api_url, response_info in self.api_data.items():
                                 if 'data' not in response_info:
                                     continue
-                                if '/api/data_sp/get_author_spread_info' in api_url and ('type=1' in api_url or 'only_assign=false' in api_url):
+                                if '/api/data_sp/get_author_spread_info' in api_url and (
+                                        'type=1' in api_url or 'only_assign=false' in api_url):
                                     personal_spread_in_current.append((api_url, response_info))
 
                             if personal_spread_in_current:
                                 # 如果已经有个人视频数据，直接处理，不需要点击
-                                self.logger.info(f"✅ 已经捕获到 {len(personal_spread_in_current)} 个个人 spread_info API，无需点击")
+                                self.logger.info(
+                                    f"✅ 已经捕获到 {len(personal_spread_in_current)} 个个人 spread_info API，无需点击")
                                 self.current_video_type = 'personal'
                                 _, last_response_info = personal_spread_in_current[-1]
                                 response_data = last_response_info['data']
@@ -383,7 +409,7 @@ class DouYinSpider:
                                 except Exception as e:
                                     self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-                                self.common.random_sleep(3, 4)  # 增加3-4秒延迟
+                                self.common.random_sleep(4, 6)  # 增加3-4秒延迟
 
                                 self.logger.info("等待个人视频API数据加载...")
 
@@ -411,7 +437,8 @@ class DouYinSpider:
                                     waited_time += poll_interval
 
                                 if not api_found:
-                                    self.logger.warning(f"⏰ 等待超时({max_wait_time}秒)，未检测到个人视频 spread_info API")
+                                    self.logger.warning(
+                                        f"⏰ 等待超时({max_wait_time}秒)，未检测到个人视频 spread_info API")
 
                                 # 调试：打印所有捕获到的API
                                 for api_url in self.api_data.keys():
@@ -423,7 +450,8 @@ class DouYinSpider:
                                     if 'data' not in response_info:
                                         continue
                                     # 判断条件改为：包含 type=1 或 only_assign=false
-                                    if '/api/data_sp/get_author_spread_info' in api_url and ('type=1' in api_url or 'only_assign=false' in api_url):
+                                    if '/api/data_sp/get_author_spread_info' in api_url and (
+                                            'type=1' in api_url or 'only_assign=false' in api_url):
                                         personal_spread_apis.append((api_url, response_info))
 
                                 self.logger.info(f"找到 {len(personal_spread_apis)} 个个人 spread_info API")
@@ -459,7 +487,7 @@ class DouYinSpider:
                                     except Exception as e:
                                         self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-                                    self.common.random_sleep(3, 4)  # 增加3-4秒延迟
+                                    self.common.random_sleep(4, 6)  # 增加3-4秒延迟
 
                             # 标记为获取个人视频数据
                             self.current_video_type = 'personal'
@@ -499,14 +527,16 @@ class DouYinSpider:
                             for api_url, response_info in self.api_data.items():
                                 if 'data' not in response_info:
                                     continue
-                                if '/api/data_sp/get_author_spread_info' in api_url and ('type=1' in api_url or 'only_assign=false' in api_url):
+                                if '/api/data_sp/get_author_spread_info' in api_url and (
+                                        'type=1' in api_url or 'only_assign=false' in api_url):
                                     personal_spread_apis.append((api_url, response_info))
 
                             if personal_spread_apis:
                                 # 使用最后一个 API 响应（第一个可能没有数据）
                                 _, last_response_info = personal_spread_apis[-1]
                                 response_data = last_response_info['data']
-                                self.logger.info(f"找到 {len(personal_spread_apis)} 个个人 spread_info API，使用最后一个")
+                                self.logger.info(
+                                    f"找到 {len(personal_spread_apis)} 个个人 spread_info API，使用最后一个")
                                 self._process_author_spread_info(response_data, user_id)
 
                     except Exception as btn_error:
@@ -539,6 +569,82 @@ class DouYinSpider:
 
             # ===== 商业能力处理结束 =====
 
+            # ===== 新增：点击创作能力并处理作品数据 =====
+            try:
+                self.logger.info("开始处理创作能力的作品数据...")
+
+                # 点击创作能力标签
+                creative_ability_tab = self.page.locator("div.el-tabs__nav >> div:has-text('创作能力')")
+                if creative_ability_tab and creative_ability_tab.is_visible():
+                    # 点击前等待页面完全响应
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                    except Exception as e:
+                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                    self.api_data = {}
+                    self.common.random_sleep(1, 2)
+                    creative_ability_tab.click()
+                    self.logger.info("成功点击创作能力标签")
+
+                    # 等待页面加载完成并增加延迟
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                    except Exception as e:
+                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                    self.common.random_sleep(4, 6)  # 增加3-4秒延迟，避免操作过快
+
+                    # 检测并处理验证码
+                    if not self.check_and_handle_captcha():
+                        self.logger.error("验证码处理失败")
+                        return 0
+
+                    # 等待作品数据API
+                    self.logger.info("等待创作能力作品数据API...")
+                    max_wait_time = 15  # 最多等待15秒
+                    poll_interval = 0.5  # 每0.5秒检查一次
+                    waited_time = 0
+                    api_found = False
+
+                    while waited_time < max_wait_time:
+                        # 检查是否已经有作品数据 API
+                        show_items_count = sum(
+                            1 for url in self.api_data.keys()
+                            if '/api/author/get_author_show_items_v2' in url
+                        )
+
+                        if show_items_count > 0:
+                            self.logger.info(f"✅ 检测到作品数据 API！等待时间: {waited_time:.1f}秒")
+                            api_found = True
+                            break
+
+                        # 【关键】使用 page.wait_for_timeout 而不是 time.sleep
+                        # 这样可以让 playwright 事件循环处理响应
+                        self.page.wait_for_timeout(int(poll_interval * 1000))
+                        waited_time += poll_interval
+
+                    if not api_found:
+                        self.logger.warning(f"⏰ 等待超时({max_wait_time}秒)，未检测到作品数据 API")
+
+                    # 处理创作能力页面的作品数据API
+                    for api_url, response_info in self.api_data.items():
+                        if 'data' not in response_info:
+                            continue
+                        if '/api/author/get_author_show_items_v2' in api_url:
+                            response_data = response_info['data']
+                            self.logger.info("处理创作能力作品数据...")
+                            self._process_author_show_items(response_data, user_id)
+                            break
+
+                else:
+                    self.logger.warning("未找到创作能力标签")
+
+            except Exception as creative_error:
+                self.logger.warning(f"处理创作能力时出错: {str(creative_error)}")
+
+            # ===== 创作能力处理结束 =====
+
             # 点击连接用户标签
             creative_tab = self.page.locator("div.el-tabs__nav >> div:has-text('连接用户')")
             if creative_tab and creative_tab.is_visible():
@@ -548,7 +654,7 @@ class DouYinSpider:
                 except Exception as e:
                     self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-                time.sleep(0.5)
+                self.common.random_sleep(1, 2)
                 creative_tab.click()
                 self.logger.info("成功点击连接用户标签")
 
@@ -558,7 +664,7 @@ class DouYinSpider:
                 except Exception as e:
                     self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-                self.common.random_sleep(3, 4)  # 增加3-4秒延迟，避免操作过快
+                self.common.random_sleep(4, 6)  # 增加3-4秒延迟，避免操作过快
 
                 # 检测并处理验证码
                 if not self.check_and_handle_captcha():
@@ -627,7 +733,7 @@ class DouYinSpider:
                 except Exception as e:
                     self.logger.warning(f"等待页面网络空闲时出错: {str(e)}")
 
-                self.common.random_sleep(3, 4)  # 增加3-4秒延迟，确保页面完全加载
+                self.common.random_sleep(4, 6)  # 增加3-4秒延迟，确保页面完全加载
 
                 fan_portrait_button = self.page.locator("text=粉丝画像")
                 if fan_portrait_button and fan_portrait_button.is_visible():
@@ -641,7 +747,7 @@ class DouYinSpider:
                     except Exception as e:
                         self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-                    time.sleep(0.5)
+                    self.common.random_sleep(1, 2)
                     fan_portrait_button.click()
                     self.logger.info("成功点击粉丝画像按钮")
 
@@ -651,7 +757,7 @@ class DouYinSpider:
                     except Exception as e:
                         self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-                    self.common.random_sleep(3, 4)  # 增加3-4秒延迟，避免操作过快
+                    self.common.random_sleep(4, 6)  # 增加3-4秒延迟，避免操作过快
 
                     # 检测并处理验证码
                     if not self.check_and_handle_captcha():
@@ -722,8 +828,6 @@ class DouYinSpider:
             self.logger.error(f"抓取KOL {kol_name} 笔记时出错: {str(e)}")
             raise
 
-
-
     def _save_all_kol_data_to_api(self, user_id: str):
         """统一保存所有收集到的API数据到远程接口"""
         try:
@@ -738,6 +842,9 @@ class DouYinSpider:
             print("yingxiao_api_data:")
             print(self.yingxiao_api_data)
             print("=" * 60)
+            print("payload (作品数据):")
+            print(self.payload)
+            print("=" * 60)
 
             # 构建payload，参考get_pgy_intro.py的格式
             payload = {
@@ -745,7 +852,7 @@ class DouYinSpider:
                     {"tb_name": "blogger_info", "tb_data": [self.kol_api_data]},
                     {"tb_name": "blogger_note_rate", "tb_data": []},
                     {"tb_name": "blogger_data_summary", "tb_data": []},
-                    {"tb_name": "blogger_note_detail", "tb_data": []},
+                    {"tb_name": "blogger_note_detail", "tb_data": self.payload["apis"][0]["tb_data"]},
                     {"tb_name": "blogger_fans_summary", "tb_data": []},
                     {"tb_name": "blogger_fans_profile", "tb_data": []},
                     {"tb_name": "blogger_fans_history", "tb_data": []},
@@ -836,6 +943,18 @@ class DouYinSpider:
             self.kol_api_data['redId'] = response_data.get('short_id')
             self.kol_api_data['headPhoto'] = response_data.get('avatar_uri')
             self.kol_api_data['gender'] = gender
+            # MCN信息转换为接口需要的noteSign结构
+            mcn_id = response_data.get('mcn_id')
+            mcn_name = response_data.get('mcn_name', '')
+            if mcn_id or mcn_name:
+                note_sign_name = mcn_name
+                if isinstance(note_sign_name, str) and note_sign_name:
+                    if note_sign_name == "方片新媒体":
+                        note_sign_name = "方片"
+                self.kol_api_data['noteSign'] = {
+                    "userId": str(mcn_id) if mcn_id is not None else "",
+                    "name": note_sign_name or ""
+                }
             tags_relation = response_data.get('tags_relation', {})
             if tags_relation:
                 content_field = []
@@ -990,7 +1109,7 @@ class DouYinSpider:
         """处理作者受众分布API数据，保存distributions字段为JSON格式"""
         try:
             self.logger.info(f"开始处理受众分布API数据，用户ID: {user_id}")
-            
+
             if not response_data:
                 self.logger.error("作者受众分布API响应数据为空")
                 return
@@ -1006,7 +1125,7 @@ class DouYinSpider:
             # 将distributions转换为JSON字符串
             try:
                 distributions_json = json.dumps(distributions, ensure_ascii=False)
-                
+
                 # 存储到kol_api_data中，等待统一保存
                 self.kol_api_data['audience_distribution'] = {
                     'audience_distribution': distributions_json
@@ -1180,6 +1299,60 @@ class DouYinSpider:
             self.logger.error(f"处理粉丝数据分布时出错: {str(e)}")
             self.logger.error(f"错误详情: {traceback.format_exc()}")
 
+    def _process_author_show_items(self, response_data: Dict[str, Any], user_id: str):
+        """处理作品数据，将latest_star_item_info转换为blogger_note_detail格式"""
+        try:
+            self.logger.info(f"开始处理作品数据，用户ID: {user_id}")
+
+            if not response_data:
+                self.logger.error("作品数据API响应数据为空")
+                return
+
+            # 提取latest_star_item_info字段
+            latest_star_item_info = response_data.get('latest_star_item_info', [])
+
+            if not latest_star_item_info:
+                self.logger.warning(f"用户ID {user_id} 的作品数据为空")
+                return
+
+            self.logger.info(f"找到 {len(latest_star_item_info)} 条作品数据")
+
+            # 转换每条作品数据为blogger_note_detail格式
+            note_details = []
+            for item in latest_star_item_info:
+                try:
+                    # 从抖音接口格式转换为self.payload格式
+                    note_detail = {
+                        'readNum': item.get('play', 0),  # 播放量 -> 阅读数
+                        'likeNum': item.get('like', 0),  # 点赞数
+                        'collectNum': item.get('comment', 0),  # 评论数 -> 收藏数
+                        'isAdvertise': True,  # 是否广告（布尔值，按new_kol逻辑保持为True）
+                        'isVideo': True if item.get('media_type') == '4' else False,  # 是否视频（布尔值）
+                        'noteId': item.get('item_id', ''),  # 作品ID
+                        'imgUrl': item.get('item_cover', ''),  # 封面图
+                        'title': item.get('item_title', ''),  # 作品标题
+                        'brandName': None,  # 品牌名（抖音接口中没有此字段，使用None）
+                        'date': item.get('item_date', ''),  # 发布日期
+                        'thirdReadUserNum': 0,  # 第三方阅读用户数（默认为0）
+                        'platform_user_id': user_id  # 平台用户ID
+                    }
+                    note_details.append(note_detail)
+                except Exception as item_error:
+                    self.logger.error(f"转换单条作品数据时出错: {str(item_error)}")
+                    continue
+
+            # 将转换后的数据添加到payload
+            if note_details:
+                self.payload['apis'][0]['tb_data'].extend(note_details)
+                self.logger.info(f"✅ 成功转换 {len(note_details)} 条作品数据并添加到payload")
+                self.logger.info(f"当前payload中共有 {len(self.payload['apis'][0]['tb_data'])} 条作品数据")
+            else:
+                self.logger.warning("没有成功转换的作品数据")
+
+        except Exception as e:
+            self.logger.error(f"处理作品数据时出错: {str(e)}")
+            self.logger.error(f"错误详情: {traceback.format_exc()}")
+
     def send_wechat_notification(self, message):
         """发送企业微信通知"""
         try:
@@ -1231,7 +1404,8 @@ class DouYinSpider:
                         captcha_found = True
                         # 发送企业微信通知
                         try:
-                            self.send_wechat_notification(f"🔒 抖音刊例数据抓取检测到验证码！\n请尽快手动完成验证，程序已暂停等待...")
+                            self.send_wechat_notification(
+                                f"🔒 抖音刊例数据抓取检测到验证码！\n请尽快手动完成验证，程序已暂停等待...")
                         except Exception as notify_error:
                             self.logger.error(f"发送企业微信通知失败: {str(notify_error)}")
                             pass
@@ -1364,13 +1538,13 @@ class DouYinSpider:
 
                 # 检查是否存在用户头像元素
                 self.logger.info("验证Cookie是否有效...")
-                
+
                 login_detected = False
 
                 try:
                     element = self.page.locator(".user-avatar")
                     count = element.count()
-                    self.logger.info(f"选择器 '{".user-avatar"}' 找到 {count} 个元素")
+                    self.logger.info(f"选择器 .user-avatar 找到 {count} 个元素")
 
                     if count > 0:
                         # 检查所有元素，只要有一个可见就认为登录成功
@@ -1379,20 +1553,20 @@ class DouYinSpider:
                         for i, elem in enumerate(all_elements):
                             try:
                                 if elem.is_visible(timeout=1000):
-                                    self.logger.info(f"第 {i+1} 个 .user-avatar 元素可见，Cookie有效")
+                                    self.logger.info(f"第 {i + 1} 个 .user-avatar 元素可见，Cookie有效")
                                     login_detected = True
                                     break
                                 else:
-                                    self.logger.debug(f"第 {i+1} 个 .user-avatar 元素不可见")
+                                    self.logger.debug(f"第 {i + 1} 个 .user-avatar 元素不可见")
                             except Exception as elem_error:
-                                self.logger.debug(f"第 {i+1} 个 .user-avatar 元素检查出错: {str(elem_error)}")
+                                self.logger.debug(f"第 {i + 1} 个 .user-avatar 元素检查出错: {str(elem_error)}")
                                 continue
 
                         if not login_detected:
                             self.logger.warning(f"找到 {count} 个 .user-avatar 元素，但都不可见")
                 except Exception as e:
-                    self.logger.debug(f"选择器 '{".user-avatar"}' 检查出错: {str(e)}")
-                
+                    self.logger.debug(f"选择器 .user-avatar 检查出错: {str(e)}")
+
                 # 更新登录状态
                 if login_detected:
                     self.is_logged_in = True
@@ -1437,22 +1611,22 @@ class DouYinSpider:
                 self.common.random_sleep(20, 30)
                 # 尝试多个可能的选择器
                 selectors = [
-                    ".text-avatar",           # 抖音头像
-                    ".user-avatar",           # 通用头像
+                    ".text-avatar",  # 抖音头像
+                    ".user-avatar",  # 通用头像
                 ]
-                
+
                 # 设置最大等待时间(5分钟)
                 max_wait_time = 300  # 秒
                 start_time = time.time()
                 login_detected = False
-                
+
                 # 循环检查直到找到元素或超时
                 while time.time() - start_time < max_wait_time:
                     # 每30秒提示一次等待状态
                     elapsed_time = int(time.time() - start_time)
                     if elapsed_time % 30 == 0 and elapsed_time > 0:
                         self.logger.info(f"⏳ 等待登录中... 已等待 {elapsed_time} 秒")
-                    
+
                     # 尝试每个选择器
                     for selector in selectors:
                         try:
@@ -1466,22 +1640,21 @@ class DouYinSpider:
                         except Exception as e:
                             # 忽略错误，继续尝试下一个选择器
                             pass
-                    
+
                     # 如果找到登录标识，退出循环
                     if login_detected:
                         break
-                    
-                    
+
                     # 等待一小段时间再检查
                     time.sleep(2)
-                
+
                 # 检查是否登录成功
                 if login_detected:
                     self.is_logged_in = True
-                    
+
                     # 登录成功后保存Cookie
                     self._save_cookies()
-                    
+
                     self.logger.info("🎉 登录成功！已保存Cookie")
                     return True
                 else:
@@ -1548,14 +1721,14 @@ class DouYinSpider:
                 base_resp = response_data.get('base_resp', {})
                 status_code = base_resp.get('status_code')
                 status_message = base_resp.get('status_message', '')
-                
+
                 if status_code == 10005:
                     self.logger.warning(f"API返回登录失效: {status_message}, URL: {url}")
                     return True
                 elif status_code != 0 and status_code is not None:
                     self.logger.warning(f"API返回错误状态: {status_code} - {status_message}, URL: {url}")
                     return True
-            
+
             return False  # 状态正常，可以继续处理
         except Exception as e:
             self.logger.error(f"检查API响应状态时出错: {str(e)}")
@@ -1568,16 +1741,17 @@ class DouYinSpider:
 
             # 定义需要处理的目标API列表
             target_apis = [
-                '/api/author/get_author_base_info', #详细信息
-                '/api/data_sp/check_author_display', #粉丝赞藏数
-                '/api/author/get_author_marketing_info', #报价
-                '/api/author/get_author_platform_channel_info_v2', #报价
+                '/api/author/get_author_base_info',  # 详细信息
+                '/api/data_sp/check_author_display',  # 粉丝赞藏数
+                '/api/author/get_author_marketing_info',  # 报价
+                '/api/author/get_author_platform_channel_info_v2',  # 报价
                 '/api/aggregator/get_author_commerce_spread_info',  # 预估CPE/CPM
                 '/api/data_sp/get_author_spread_info',  # 传播价值
                 '/api/aggregator/get_author_commerce_seed_base_info',  # 种草价值
                 '/api/data_sp/get_author_convert_ability',  # 转化价值
                 '/api/data_sp/author_link_card',  # 连接用户分布
                 '/api/data_sp/get_author_fans_distribution',  # 粉丝数据
+                '/api/author/get_author_show_items_v2',  # 创作能力-作品数据
             ]
 
             # 检查是否是目标API
@@ -1664,6 +1838,66 @@ class DouYinSpider:
         except Exception as e:
             logger.error(f"保存Cookie时出错: {str(e)}")
 
+    def _load_processed_kols(self):
+        """加载当天已处理的博主ID"""
+        try:
+            if os.path.exists(self.processed_kols_file):
+                with open(self.processed_kols_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                # 检查日期是否是今天
+                saved_date = data.get('date', '')
+                today = datetime.now().strftime('%Y-%m-%d')
+
+                if saved_date == today:
+                    # 是同一天，加载已处理的博主ID
+                    self.processed_kols_today = set(data.get('processed_kols', []))
+                    self.current_date = today
+                    self.logger.info(f"✅ 加载了今天已处理的 {len(self.processed_kols_today)} 个博主ID")
+                else:
+                    # 是新的一天，清空记录
+                    self.processed_kols_today = set()
+                    self.current_date = today
+                    self.logger.info(f"📅 新的一天 ({saved_date} -> {today})，已清空昨天的处理记录")
+            else:
+                # 文件不存在，初始化空集合
+                self.processed_kols_today = set()
+                self.current_date = datetime.now().strftime('%Y-%m-%d')
+                self.logger.info("首次运行，初始化已处理博主ID集合")
+        except Exception as e:
+            self.logger.error(f"加载已处理博主ID时出错: {str(e)}")
+            # 出错时初始化为空集合
+            self.processed_kols_today = set()
+            self.current_date = datetime.now().strftime('%Y-%m-%d')
+
+    def _save_processed_kols(self):
+        """保存当天已处理的博主ID"""
+        try:
+            # 确保目录存在
+            os.makedirs(os.path.dirname(self.processed_kols_file), exist_ok=True)
+
+            data = {
+                'date': self.current_date,
+                'processed_kols': list(self.processed_kols_today)
+            }
+
+            with open(self.processed_kols_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            self.logger.debug(f"已保存 {len(self.processed_kols_today)} 个已处理博主ID")
+        except Exception as e:
+            self.logger.error(f"保存已处理博主ID时出错: {str(e)}")
+
+    def is_kol_processed(self, star_id: str) -> bool:
+        """检查博主ID是否已处理过"""
+        return star_id in self.processed_kols_today
+
+    def add_processed_kol(self, star_id: str):
+        """添加已处理的博主ID"""
+        self.processed_kols_today.add(star_id)
+        # 每次添加后保存
+        self._save_processed_kols()
+
     def _load_cookies(self):
         """
         从同级目录加载保存的Cookie
@@ -1699,12 +1933,17 @@ def get_pending_kols() -> List[Dict[str, Any]]:
     """获取需要处理的KOL列表"""
     try:
         config = load_config()
-        page_id = config['PGY_LOGIN_CONFIG']['id']
-        api_url = f"https://tianji.fangpian999.com/api/admin/creatorBusiness/getNewerCreator?type=1&platform_id=2&page={page_id}&pageSize=480"
+        page = config['PGY_LOGIN_CONFIG']['page']
+        type = config['PGY_LOGIN_CONFIG']['type']
+        page_size = config['PGY_LOGIN_CONFIG']['page_size']
+        # creator_mcn = [6, 9, 10, 11, 49, 42, 43, 44]
+        api_url = f"https://tianji.fangpian999.com/api/admin/creatorBusiness/getNewerCreator?type={type}&platform_id=2&page={page}&pageSize={page_size}"
+        print(api_url)
         headers = {"Content-Type": "application/json"}
 
         response = requests.post(api_url, headers=headers, timeout=30, verify=False)
         creator_data = response.json()['data']
+
         print(f"从数据库获取到 {len(creator_data)} 个待处理的KOL")
         return creator_data
     except Exception as e:
@@ -1728,6 +1967,11 @@ def process_kol(spider: DouYinSpider, kol: Dict[str, Any]):
         return False
 
     try:
+        # 检查是否已处理过
+        if spider.is_kol_processed(star_id):
+            spider.logger.info(f"⏭️  博主 {kol_name} (ID: {star_id}) 今天已处理过，跳过")
+            return True  # 返回True表示已处理，避免重复处理
+
         spider.logger.info(f"开始处理KOL: {kol_name}")
 
         # 验证必要的字段
@@ -1740,6 +1984,8 @@ def process_kol(spider: DouYinSpider, kol: Dict[str, Any]):
 
         if result == 1:
             spider.logger.info(f"✅ KOL {kol_name} 处理成功")
+            # 添加到已处理列表
+            spider.add_processed_kol(star_id)
             return True
         else:
             # 处理失败
@@ -1794,7 +2040,7 @@ def run_spider_task():
 
                 # 每个KOL之间等待一段时间，避免请求过于频繁
                 if i < len(kols):  # 最后一个KOL不需要等待
-                    wait_time = random.randint(15, 20)
+                    wait_time = random.randint(7, 10)
                     print(f"等待 {wait_time} 秒后处理下一个KOL...")
                     time.sleep(wait_time)
 

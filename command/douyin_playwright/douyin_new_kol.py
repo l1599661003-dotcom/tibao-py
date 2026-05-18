@@ -100,6 +100,12 @@ class DouYinSpider:
         self.kol_api_data = {}
         self.other_api_data = {}
         self.yingxiao_api_data = []  # 营销传播数据数组
+        self.payload = {
+            "apis": [
+                {"tb_name": "blogger_note_detail", "tb_data": []}
+            ],
+            "client_id": 1
+        }
 
         # 企业微信webhook地址
         self.webhook_url = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=b3b0cdf5-62b6-49d7-80d7-6f741c3c2c4d"
@@ -132,6 +138,12 @@ class DouYinSpider:
             self.kol_api_data = {}
             self.other_api_data = {}
             self.yingxiao_api_data = []  # 重置营销传播数组
+            self.payload = {
+                "apis": [
+                    {"tb_name": "blogger_note_detail", "tb_data": []}
+                ],
+                "client_id": 1
+            }
             # 添加API响应处理标志
             self.api_response_processed = False
 
@@ -144,7 +156,12 @@ class DouYinSpider:
             except Exception as e:
                 self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
-            self.common.random_sleep(3, 4)
+            self.common.random_sleep(4, 6)
+
+            # 添加验证码检测
+            if not self.check_and_handle_captcha():
+                self.logger.error("验证码处理失败")
+                return 0
 
             api_data_copy = dict(self.api_data)
             for api_url, response_info in api_data_copy.items():
@@ -241,6 +258,11 @@ class DouYinSpider:
                                     self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
                                 self.common.random_sleep(3, 4)  # 增加3-4秒延迟
+
+                                # 检测并处理验证码
+                                if not self.check_and_handle_captcha():
+                                    self.logger.error("验证码处理失败")
+                                    return 0
 
                             # 等待并标记为获取星图视频数据
                             self.current_video_type = 'xingtu'  # 标记当前视频类型
@@ -375,6 +397,11 @@ class DouYinSpider:
 
                                 self.common.random_sleep(3, 4)  # 增加3-4秒延迟
 
+                                # 检测并处理验证码
+                                if not self.check_and_handle_captcha():
+                                    self.logger.error("验证码处理失败")
+                                    return 0
+
                                 self.logger.info("等待个人视频API数据加载...")
 
                                 # 【关键修复】主动等待 spread_info API 出现，而不是盲目等待固定时间
@@ -452,6 +479,11 @@ class DouYinSpider:
                                         self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
 
                                     self.common.random_sleep(3, 4)  # 增加3-4秒延迟
+
+                                    # 检测并处理验证码
+                                    if not self.check_and_handle_captcha():
+                                        self.logger.error("验证码处理失败")
+                                        return 0
 
                             # 标记为获取个人视频数据
                             self.current_video_type = 'personal'
@@ -532,6 +564,82 @@ class DouYinSpider:
                 self.logger.warning(f"处理商业能力时出错: {str(ability_error)}")
 
             # ===== 商业能力处理结束 =====
+
+            # ===== 新增：点击创作能力并处理作品数据 =====
+            try:
+                self.logger.info("开始处理创作能力的作品数据...")
+
+                # 点击创作能力标签
+                creative_ability_tab = self.page.locator("div.el-tabs__nav >> div:has-text('创作能力')")
+                if creative_ability_tab and creative_ability_tab.is_visible():
+                    # 点击前等待页面完全响应
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                    except Exception as e:
+                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                    self.api_data = {}
+                    self.common.random_sleep(1, 2)
+                    creative_ability_tab.click()
+                    self.logger.info("成功点击创作能力标签")
+
+                    # 等待页面加载完成并增加延迟
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=5000)
+                    except Exception as e:
+                        self.logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                    self.common.random_sleep(4, 6)  # 增加3-4秒延迟，避免操作过快
+
+                    # 检测并处理验证码
+                    if not self.check_and_handle_captcha():
+                        self.logger.error("验证码处理失败")
+                        return 0
+
+                    # 等待作品数据API
+                    self.logger.info("等待创作能力作品数据API...")
+                    max_wait_time = 15  # 最多等待15秒
+                    poll_interval = 0.5  # 每0.5秒检查一次
+                    waited_time = 0
+                    api_found = False
+
+                    while waited_time < max_wait_time:
+                        # 检查是否已经有作品数据 API
+                        show_items_count = sum(
+                            1 for url in self.api_data.keys()
+                            if '/api/author/get_author_show_items_v2' in url
+                        )
+
+                        if show_items_count > 0:
+                            self.logger.info(f"✅ 检测到作品数据 API！等待时间: {waited_time:.1f}秒")
+                            api_found = True
+                            break
+
+                        # 【关键】使用 page.wait_for_timeout 而不是 time.sleep
+                        # 这样可以让 playwright 事件循环处理响应
+                        self.page.wait_for_timeout(int(poll_interval * 1000))
+                        waited_time += poll_interval
+
+                    if not api_found:
+                        self.logger.warning(f"⏰ 等待超时({max_wait_time}秒)，未检测到作品数据 API")
+
+                    # 处理创作能力页面的作品数据API
+                    for api_url, response_info in self.api_data.items():
+                        if 'data' not in response_info:
+                            continue
+                        if '/api/author/get_author_show_items_v2' in api_url:
+                            response_data = response_info['data']
+                            self.logger.info("处理创作能力作品数据...")
+                            self._process_author_show_items(response_data, user_id)
+                            break
+
+                else:
+                    self.logger.warning("未找到创作能力标签")
+
+            except Exception as creative_error:
+                self.logger.warning(f"处理创作能力时出错: {str(creative_error)}")
+
+            # ===== 创作能力处理结束 =====
 
             # 点击连接用户标签
             creative_tab = self.page.locator("div.el-tabs__nav >> div:has-text('连接用户')")
@@ -707,10 +815,10 @@ class DouYinSpider:
             # 统一保存所有收集到的API数据到远程接口
             if self.current_kol and self.current_kol.get('user_id'):
                 self.logger.info("开始统一保存所有API数据到远程接口")
-                self._save_kol_status_to_api(self.current_kol.get('user_id'))
-                time.sleep(2)
                 self._save_all_kol_data_to_api(self.current_kol.get('user_id'))
                 self.logger.info("✅ 所有API数据已统一保存到远程接口")
+                self._save_kol_status_to_api(self.current_kol.get('user_id'))
+                time.sleep(2)
 
             return 1  # 返回1表示处理成功
 
@@ -765,6 +873,9 @@ class DouYinSpider:
             print("yingxiao_api_data:")
             print(self.yingxiao_api_data)
             print("=" * 60)
+            print("payload (作品数据):")
+            print(self.payload)
+            print("=" * 60)
 
             # 构建payload，参考get_pgy_intro.py的格式
             payload = {
@@ -772,7 +883,7 @@ class DouYinSpider:
                     {"tb_name": "blogger_info", "tb_data": [self.kol_api_data]},
                     {"tb_name": "blogger_note_rate", "tb_data": []},
                     {"tb_name": "blogger_data_summary", "tb_data": []},
-                    {"tb_name": "blogger_note_detail", "tb_data": []},
+                    {"tb_name": "blogger_note_detail", "tb_data": self.payload["apis"][0]["tb_data"]},
                     {"tb_name": "blogger_fans_summary", "tb_data": []},
                     {"tb_name": "blogger_fans_profile", "tb_data": []},
                     {"tb_name": "blogger_fans_history", "tb_data": []},
@@ -1047,6 +1158,60 @@ class DouYinSpider:
             self.logger.error(f"处理受众分布数据时出错: {str(e)}")
             self.logger.error(f"错误详情: {traceback.format_exc()}")
 
+    def _process_author_show_items(self, response_data: Dict[str, Any], user_id: str):
+        """处理作品数据，将latest_star_item_info转换为blogger_note_detail格式"""
+        try:
+            self.logger.info(f"开始处理作品数据，用户ID: {user_id}")
+
+            if not response_data:
+                self.logger.error("作品数据API响应数据为空")
+                return
+
+            # 提取latest_star_item_info字段
+            latest_star_item_info = response_data.get('latest_star_item_info', [])
+
+            if not latest_star_item_info:
+                self.logger.warning(f"用户ID {user_id} 的作品数据为空")
+                return
+
+            self.logger.info(f"找到 {len(latest_star_item_info)} 条作品数据")
+
+            # 转换每条作品数据为blogger_note_detail格式
+            note_details = []
+            for item in latest_star_item_info:
+                try:
+                    # 从抖音接口格式转换为self.payload格式
+                    note_detail = {
+                        'readNum': item.get('play', 0),  # 播放量 -> 阅读数
+                        'likeNum': item.get('like', 0),  # 点赞数
+                        'collectNum': item.get('comment', 0),  # 评论数 -> 收藏数
+                        'isAdvertise': True,  # 是否广告（布尔值，星图作品默认为False）
+                        'isVideo': True if item.get('media_type') == '4' else False,  # 是否视频（布尔值）
+                        'noteId': item.get('item_id', ''),  # 作品ID
+                        'imgUrl': item.get('item_cover', ''),  # 封面图
+                        'title': item.get('item_title', ''),  # 作品标题
+                        'brandName': None,  # 品牌名（抖音接口中没有此字段，使用None）
+                        'date': item.get('item_date', ''),  # 发布日期
+                        'thirdReadUserNum': 0,  # 第三方阅读用户数（默认为0）
+                        'platform_user_id': user_id  # 平台用户ID
+                    }
+                    note_details.append(note_detail)
+                except Exception as item_error:
+                    self.logger.error(f"转换单条作品数据时出错: {str(item_error)}")
+                    continue
+
+            # 将转换后的数据添加到payload
+            if note_details:
+                self.payload['apis'][0]['tb_data'].extend(note_details)
+                self.logger.info(f"✅ 成功转换 {len(note_details)} 条作品数据并添加到payload")
+                self.logger.info(f"当前payload中共有 {len(self.payload['apis'][0]['tb_data'])} 条作品数据")
+            else:
+                self.logger.warning("没有成功转换的作品数据")
+
+        except Exception as e:
+            self.logger.error(f"处理作品数据时出错: {str(e)}")
+            self.logger.error(f"错误详情: {traceback.format_exc()}")
+
     def _process_author_commerce_seed_base_info(self, response_data: Dict[str, Any], user_id: str):
         """处理作者商业种子基础信息API数据 - 参考get_douyin_guakao.py第361-368行"""
         try:
@@ -1235,7 +1400,7 @@ class DouYinSpider:
         try:
             self.logger.info("检测是否出现验证码...")
 
-            # 常见的验证码元素选择器
+            # 常见的验证码元素选择器（增加更多选择器以提高检测率）
             captcha_selectors = [
                 'div[class*="captcha"]',
                 'div[class*="verify"]',
@@ -1244,6 +1409,17 @@ class DouYinSpider:
                 'div.secsdk-captcha',
                 'div.verification',
                 'div.verify-wrap',
+                'div.secure-sdk',
+                'div[class*="sec-"]',
+                'div.vid-captcha',
+                'div[class*="shield"]',
+                'iframe[class*="captcha"]',
+                'iframe[class*="sec"]',
+                'div[class*="Captcha"]',
+                'div[class*="Verify"]',
+                'div[id*="captcha"]',
+                'div[id*="verify"]',
+                'div[class*="secsdk"]',
             ]
 
             # 检查是否出现验证码
@@ -1603,6 +1779,7 @@ class DouYinSpider:
                 '/api/data_sp/get_author_convert_ability',  # 转化价值
                 '/api/data_sp/author_link_card',  # 连接用户分布
                 '/api/data_sp/get_author_fans_distribution',  # 粉丝数据
+                '/api/author/get_author_show_items_v2',  # 创作能力-作品数据
             ]
 
             # 检查是否是目标API

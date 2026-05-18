@@ -16,6 +16,42 @@ from models.models import PgyUser, PgyNoteDetail, PgyUserFans
 """
 
 
+def parse_count(count_str):
+    """解析点赞数/收藏数/分享数等，支持'1.5万'、'10+'等格式
+
+    Args:
+        count_str: 计数字符串，如 '1.5万', '100', '10+', 'w'等
+
+    Returns:
+        int: 解析后的整数
+    """
+    if not count_str:
+        return 0
+
+    count_str = str(count_str).strip()
+
+    # 移除加号（如'10+'）
+    count_str = count_str.replace('+', '')
+
+    # 如果是纯数字，直接返回
+    try:
+        return int(count_str)
+    except:
+        pass
+
+    # 处理万/w格式
+    if '万' in count_str or 'w' in count_str.lower():
+        # 提取数字部分
+        num_str = count_str.replace('万', '').replace('w', '').replace('W', '').strip()
+        try:
+            num = float(num_str)
+            return int(num * 10000)
+        except:
+            return 0
+
+    return 0
+
+
 class XiaohongshuNotesSpider:
     def __init__(self):
         self.setup_logger()
@@ -88,6 +124,10 @@ class XiaohongshuNotesSpider:
                 if response.status == 200:
                     try:
                         response_data = response.json()
+                        if not response_data:
+                            logger.warning("user_posted接口响应数据为空")
+                            return
+
                         logger.info(f"捕获到user_posted接口响应")
 
                         # 保存user_posted数据
@@ -98,8 +138,10 @@ class XiaohongshuNotesSpider:
                         }
 
                         # 打印notes数量
-                        notes = response_data.get('data', {}).get('notes', [])
-                        logger.info(f"user_posted接口返回 {len(notes)} 条笔记")
+                        data_dict = response_data.get('data', {})
+                        if data_dict:
+                            notes = data_dict.get('notes', [])
+                            logger.info(f"user_posted接口返回 {len(notes)} 条笔记")
 
                     except Exception as e:
                         logger.error(f"解析user_posted接口响应数据时出错: {str(e)}")
@@ -692,7 +734,11 @@ class XiaohongshuNotesSpider:
                 logger.warning("未捕获user_posted数据")
                 return False
 
-            response_data = user_posted_data.get('data', {})
+            response_data = user_posted_data.get('data')
+            if not response_data:
+                logger.warning("user_posted响应数据为空")
+                return False
+
             notes = response_data.get('data', {}).get('notes', [])
 
             logger.info(f"准备保存 {len(notes)} 条笔记数据到数据库")
@@ -713,11 +759,8 @@ class XiaohongshuNotesSpider:
                 # 提取互动数据
                 interact_info = note.get('interact_info', {})
                 liked_count = interact_info.get('liked_count', '0')
-                # 处理数字格式（可能包含"万"或"w"）
-                if isinstance(liked_count, str):
-                    like_num = int(liked_count.replace('万', '0000').replace('w', '0000'))
-                else:
-                    like_num = int(liked_count)
+                # 使用parse_count函数处理数字格式（支持"1.5万"等格式）
+                like_num = parse_count(liked_count)
 
                 # 获取当前时间戳
                 current_timestamp = int(time.time())
@@ -809,11 +852,11 @@ class XiaohongshuNotesSpider:
 
                 logger.info(f"准备保存笔记: note_id={note_id}, title={note_title}")
 
-                # 提取互动数据
+                # 提取互动数据（使用parse_count函数处理"1.5万"等格式）
                 interact_info = note_card.get('interact_info', {})
-                like_num = int(interact_info.get('liked_count', '0').replace('万', '0000').replace('w', '0000'))
-                collect_num = int(interact_info.get('collected_count', '0').replace('万', '0000').replace('w', '0000'))
-                share_num = int(interact_info.get('share_count', '0').replace('万', '0000').replace('w', '0000'))
+                like_num = parse_count(interact_info.get('liked_count', '0'))
+                collect_num = parse_count(interact_info.get('collected_count', '0'))
+                share_num = parse_count(interact_info.get('share_count', '0'))
 
                 # 提取发布时间
                 last_update_time = note_card.get('last_update_time', 0)
@@ -884,7 +927,7 @@ class XiaohongshuNotesSpider:
 
             # 查询所有pgy_user数据
             logger.info("查询pgy_user表数据...")
-            users = session.query(PgyUser).all()
+            users = session.query(PgyUser).filter(PgyUser.status == 1).all()
             logger.info(f"共查询到 {len(users)} 个用户")
 
             if len(users) == 0:

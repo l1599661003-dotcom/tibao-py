@@ -100,21 +100,21 @@ class QianguaSpider:
             self.page.click("text=登录/注册")
             time.sleep(3)
 
-            self.page.click("text=手机登录")
-            time.sleep(3)
-
-            # 输入账号密码
-            self.page.fill("input[placeholder='请输入手机号']", '13151572333')
-            time.sleep(2)
-            self.page.fill("input[placeholder='请输入登录密码']", '12345678abc')
-            time.sleep(2)
-
-            # 勾选协议
-            self.page.click('.el-checkbox__inner')
-            time.sleep(1)
-
-            # 点击登录按钮
-            self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
+            # self.page.click("text=手机登录")
+            # time.sleep(3)
+            #
+            # # 输入账号密码
+            # self.page.fill("input[placeholder='请输入手机号']", '13151572333')
+            # time.sleep(2)
+            # self.page.fill("input[placeholder='请输入登录密码']", '12345678abc')
+            # time.sleep(2)
+            #
+            # # 勾选协议
+            # self.page.click('.el-checkbox__inner')
+            # time.sleep(1)
+            #
+            # # 点击登录按钮
+            # self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
 
             # 增加登录后的等待时间，确保页面完全加载
             time.sleep(5)

@@ -18,7 +18,7 @@ from core.localhost_fp_project import Session  # 使用Session工厂而不是全
 from models.models import QgBloggerRank, QgBrandInfo, QgNoteInfo
 
 """
-    获取千瓜MCN商业收入榜数据
+    获取千瓜合作品牌下面的品牌以及品牌下的笔记信息
 """
 
 
@@ -90,9 +90,9 @@ class QianguaMcnRankSpider:
 
     def setup_browser(self):
         self.playwright = sync_playwright().start()
-        # 使用本地Chrome浏览器并指定用户数据目录
-        # 这样可以使用你的Chrome配置,避免滑块验证
-        user_data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'xiaohongshu_notes', 'chrome_user_data')
+        # 使用小红书的chrome_user_data目录，共享登录状态
+        user_data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'xiaohongshu_notes',
+                                     'chrome_user_data')
         os.makedirs(user_data_dir, exist_ok=True)
 
         self.context = self.playwright.chromium.launch_persistent_context(
@@ -163,9 +163,9 @@ class QianguaMcnRankSpider:
         """执行登录操作"""
         try:
             logger.info("开始登录...")
-            self.page.click("text=登录/注册")
-            self.human_delay(1.5, 2.5)
-
+            # self.page.click("text=登录/注册")
+            # self.human_delay(1.5, 2.5)
+            #
             # self.page.click("text=手机登录")
             # self.human_delay(1.5, 2.5)
             #
@@ -182,16 +182,16 @@ class QianguaMcnRankSpider:
             # # 点击登录按钮
             # self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
             # self.human_delay(1.0, 2.0)
-
-            # 等待滑块出现并提示用户
-            logger.info("已点击登录按钮,等待滑块验证...")
-            logger.info("请手动完成滑块验证并点击登录!")
-            self.human_delay(1.5, 2.5)
+            #
+            # # 等待滑块出现并提示用户
+            # logger.info("已点击登录按钮,等待滑块验证...")
+            # logger.info("请手动完成滑块验证并点击登录!")
+            # self.human_delay(1.5, 2.5)
 
             # 等待用户手动完成滑块验证和登录,最多等待60秒
             logger.info("等待用户手动完成滑块验证和登录(最多等待60秒)...")
             wait_time = 0
-            max_wait_time = 60
+            max_wait_time = 300
 
             while wait_time < max_wait_time:
                 try:
@@ -541,6 +541,172 @@ class QianguaMcnRankSpider:
                 db_session.close()
                 logger.debug("数据库session已关闭")
 
+    def save_note_data_to_db(self, year_month, org_name):
+        """处理笔记列表数据写入数据库 - 使用新session确保连接有效"""
+        db_session = None
+        try:
+            # 创建新的session，确保连接是新鲜的
+            db_session = Session()
+
+            # 检查是否有有效的blogger_id
+            if not self.current_blogger_id:
+                logger.error(f"未找到机构 {org_name} 的blogger_id,无法保存笔记数据")
+                return False
+
+            org_display = org_name or self.current_organization or '未知机构'
+
+            note_entries = self.api_data.get('GetMcnBrandNoteList', [])
+            if not note_entries:
+                wait_start = time.time()
+                while time.time() - wait_start < 3:
+                    note_entries = self.api_data.get('GetMcnBrandNoteList', [])
+                    if note_entries:
+                        break
+                    time.sleep(0.2)
+
+            if not note_entries:
+                logger.warning(f"未捕获机构 {org_display} 的笔记数据,跳过入库")
+                return False
+
+            inserted = 0
+            updated = 0
+            processed_entries = []
+
+            def parse_datetime(value):
+                if not value:
+                    return None
+                if isinstance(value, str):
+                    value = value.replace('Z', '+00:00')
+                    try:
+                        return datetime.fromisoformat(value)
+                    except ValueError:
+                        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S'):
+                            try:
+                                return datetime.strptime(value, fmt)
+                            except ValueError:
+                                continue
+                return None
+
+            def to_int(value):
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    return 0
+
+            for entry in note_entries:
+                if entry.get('processed'):
+                    continue
+
+                response_data = entry.get('data') or {}
+                item_list = (response_data.get('Data') or {}).get('ItemList') or []
+                if not item_list:
+                    processed_entries.append(entry)
+                    continue
+
+                for item in item_list:
+                    note_id = item.get('NoteId')
+                    if note_id is None:
+                        continue
+
+                    amount_value = to_int(item.get('Amount'))
+                    publish_time = parse_datetime(item.get('PublishTime'))
+                    update_time_raw = parse_datetime(item.get('UpdateTime'))
+
+                    pub_date = None
+                    pub_date_value = item.get('PubDate')
+                    if pub_date_value:
+                        try:
+                            pub_date = datetime.strptime(pub_date_value, '%Y-%m-%d').date()
+                        except ValueError:
+                            pub_date = None
+
+                    # 使用self.current_blogger_id
+                    payload = {
+                        'kol_id': self.current_blogger_id,
+                        'month': year_month,
+                        'note_id': note_id,
+                        'date_code': item.get('DateCode'),
+                        'note_id_key': item.get('NoteIdKey'),
+                        'unique_id': item.get('Id'),
+                        'user_id': item.get('UserId'),
+                        'title': item.get('Title'),
+                        'cover_image': item.get('CoverImage'),
+                        'blogger_id': item.get('BloggerId'),
+                        'blogger_id_key': item.get('BloggerIdKey'),
+                        'blogger_nickname': item.get('BloggerNickName'),
+                        'blogger_prop': item.get('BloggerProp'),
+                        'publish_time': publish_time,
+                        'note_type': item.get('NoteType'),
+                        'is_business': 1 if item.get('IsBusiness') else 0,
+                        'note_type_desc': item.get('NoteTypeDesc'),
+                        'props': to_int(item.get('Props')),
+                        'pub_date': pub_date,
+                        'update_time_raw': update_time_raw,
+                        'video_duration': item.get('VideoDuration'),
+                        'gender': to_int(item.get('Gender')) if item.get('Gender') is not None else None,
+                        'big_avatar': item.get('BigAvatar'),
+                        'small_avatar': item.get('SmallAvatar'),
+                        'tag_name': item.get('TagName'),
+                        'cooperate_binds_name': item.get('CooperateBindsName'),
+                        'view_count': to_int(item.get('ViewCount')),
+                        'active_count': to_int(item.get('ActiveCount')),
+                        'amount': amount_value,
+                        'ad_price_desc': item.get('AdPriceDesc'),
+                        'ad_price_update_status': to_int(item.get('AdPriceUpdateStatus')),
+                        'is_ad_note': 1 if item.get('IsAdNote') else 0,
+                    }
+
+                    record = db_session.query(QgNoteInfo).filter(
+                        QgNoteInfo.note_id == note_id,
+                        QgNoteInfo.kol_id == self.current_blogger_id,
+                        QgNoteInfo.month == year_month
+                    ).first()
+
+                    if record:
+                        for field, value in payload.items():
+                            setattr(record, field, value)
+                        updated += 1
+                    else:
+                        db_session.add(QgNoteInfo(**payload))
+                        inserted += 1
+
+                processed_entries.append(entry)
+
+            if inserted or updated:
+                db_session.commit()
+                logger.info(
+                    f"机构 {org_display} (blogger_id={self.current_blogger_id}) 笔记数据写入数据库完成: 新增 {inserted} 条, 更新 {updated} 条"
+                )
+            else:
+                logger.info(f"机构 {org_display} 笔记数据无更新,跳过提交")
+
+            for entry in processed_entries:
+                entry['processed'] = True
+
+            self.api_data['GetMcnBrandNoteList'] = [entry for entry in note_entries if not entry.get('processed')]
+            return inserted > 0 or updated > 0
+        except SQLAlchemyError as db_err:
+            if db_session:
+                try:
+                    db_session.rollback()
+                except:
+                    logger.warning("回滚失败，session可能已失效")
+            logger.error(f"机构 {org_name} 笔记数据入库失败: {db_err}")
+            return False
+        except Exception as e:
+            if db_session:
+                try:
+                    db_session.rollback()
+                except:
+                    logger.warning("回滚失败，session可能已失效")
+            logger.error(f"机构 {org_name} 笔记数据处理异常: {str(e)}")
+            return False
+        finally:
+            # 确保session被正确关闭
+            if db_session:
+                db_session.close()
+                logger.debug("数据库session已关闭")
+
     def load_cookies(self):
         """从文件加载cookies"""
         try:
@@ -633,8 +799,7 @@ class QianguaMcnRankSpider:
             if 'GetMcnRankData' in self.api_data:
                 self.api_data['GetMcnRankData'] = []
 
-            search_input = self.page.locator(
-                '.search-box.mr16 .el-autocomplete.s-input .el-input.el-input--medium.el-input-group.el-input-group--append.el-input--suffix input')
+            search_input = self.page.locator('.search-box.mr16 .el-autocomplete.s-input .el-input.el-input--medium.el-input-group.el-input-group--append.el-input--suffix input')
 
             search_input.fill('')
             self.human_delay(0.6, 1.2)
@@ -652,8 +817,8 @@ class QianguaMcnRankSpider:
                     'response',
                     timeout=10000,
                     predicate=lambda response: (
-                            'GetMcnRankData' in response.url
-                            and response.request.resource_type in ('xhr', 'fetch')
+                        'GetMcnRankData' in response.url
+                        and response.request.resource_type in ('xhr', 'fetch')
                     )
                 )
                 new_data_received = True
@@ -812,13 +977,13 @@ class QianguaMcnRankSpider:
                     }
 
                     const thirdDiv = divs[2]; // 索引为2是第三个
-
+                    
                     // 获取日期选择器的位置信息
                     const dateEditor = thirdDiv.querySelector('.el-date-editor--daterange');
                     if (!dateEditor) {
                         return {success: false, message: '未找到日期选择器'};
                     }
-
+                    
                     const rect = dateEditor.getBoundingClientRect();
                     return {
                         success: true, 
@@ -840,9 +1005,9 @@ class QianguaMcnRankSpider:
             # 使用坐标点击日期选择器的中心位置
             click_x = result['x']
             click_y = result['y']
-
+            
             logger.info(f"准备点击坐标: x={click_x}, y={click_y}")
-
+            
             # 使用page.mouse.click点击指定坐标
             self.page.mouse.click(click_x, click_y)
             logger.info(f"已点击日期选择器坐标")
@@ -898,13 +1063,11 @@ class QianguaMcnRankSpider:
                     if (current_year < year) or (current_year == year and current_month < month):
                         # 需要向右切换(未来的月份)
                         logger.info("点击右侧箭头切换到下一个月")
-                        self.page.click(
-                            '.el-picker-panel__content.el-date-range-picker__content.is-right .el-date-range-picker__header .el-picker-panel__icon-btn.el-icon-arrow-right')
+                        self.page.click('.el-picker-panel__content.el-date-range-picker__content.is-right .el-date-range-picker__header .el-picker-panel__icon-btn.el-icon-arrow-right')
                     else:
                         # 需要向左切换(过去的月份)
                         logger.info("点击左侧箭头切换到上一个月")
-                        self.page.click(
-                            '.el-picker-panel__content.el-date-range-picker__content.is-left .el-date-range-picker__header .el-picker-panel__icon-btn.el-icon-arrow-left')
+                        self.page.click('.el-picker-panel__content.el-date-range-picker__content.is-left .el-date-range-picker__header .el-picker-panel__icon-btn.el-icon-arrow-left')
 
                     self.human_delay(0.8, 1.4)
                     attempt += 1
@@ -1104,7 +1267,7 @@ class QianguaMcnRankSpider:
             if clicked:
                 logger.info("成功点击预估合作费用排序")
                 self.human_delay(1.0, 2.0)
-
+                
                 # 等待GetMcnBrandList接口响应
                 logger.info("等待GetMcnBrandList接口响应...")
                 wait_start = time.time()
@@ -1121,7 +1284,7 @@ class QianguaMcnRankSpider:
                         elif response_data.get('Code') == 500:
                             logger.warning(f"GetMcnBrandList接口返回错误: {response_data.get('Msg')}")
                     time.sleep(0.5)
-
+                
                 logger.info(f"当前已获取 {len(self.api_data.get('GetMcnBrandList', []))} 条GetMcnBrandList数据")
                 return True
             else:
@@ -1152,33 +1315,33 @@ class QianguaMcnRankSpider:
             # 清空之前可能触发的GetMcnBrandList接口数据
             if 'GetMcnBrandList' in self.api_data:
                 self.api_data['GetMcnBrandList'] = []
-
+            
             # 在指定位置持续滚轮滚动，直到GetMcnBrandList接口出现
             logger.info("移动鼠标到品牌列表位置(931, 575)并滚动，等待接口响应...")
             self.page.mouse.move(931, 575)
             time.sleep(0.5)
-
+            
             max_scroll_attempts = 20  # 最多滚动20次
             scroll_attempt = 0
-
+            
             while scroll_attempt < max_scroll_attempts:
                 # 向下滚动鼠标滚轮
                 self.page.mouse.wheel(0, 300)  # 增大滚动量
                 scroll_attempt += 1
                 logger.info(f"第 {scroll_attempt} 次鼠标滚轮滚动...")
                 time.sleep(1)
-
+                
                 # 检查是否有GetMcnBrandList接口响应
                 if 'GetMcnBrandList' in self.api_data and len(self.api_data['GetMcnBrandList']) > 0:
                     logger.info(f"检测到GetMcnBrandList接口响应，停止鼠标滚轮滚动")
                     break
-
+            
             if scroll_attempt >= max_scroll_attempts:
                 logger.warning("鼠标滚轮滚动达到最大次数，但未检测到接口响应")
 
             # 然后使用鼠标滚轮滚动品牌列表
             logger.info("开始使用鼠标滚轮滚动品fex牌列表...")
-
+            
             # 先获取初始已有的数据条数
             initial_count = self.page.evaluate('''
                 () => {
@@ -1186,7 +1349,7 @@ class QianguaMcnRankSpider:
                 }
             ''')
             logger.info(f"初始已有 {initial_count} 条品牌数据")
-
+            
             prev_count = initial_count
             no_more_data = False
             scroll_count = 0
@@ -1194,10 +1357,10 @@ class QianguaMcnRankSpider:
 
             while prev_count < max_records and not no_more_data:
                 scroll_count += 1
-
+                
                 # 使用鼠标滚轮向下滚动
                 self.page.mouse.wheel(0, 500)  # 增大滚动量
-
+                
                 # 随机等待
                 delay = random.uniform(self.scroll_delay_min, self.scroll_delay_max)
                 logger.info(f"第 {scroll_count} 次鼠标滚轮滚动,等待 {delay:.2f} 秒...")
@@ -1213,17 +1376,16 @@ class QianguaMcnRankSpider:
                 if new_count == prev_count:
                     consecutive_no_change += 1
                     logger.info(f"当前仍为 {new_count} 条数据，连续 {consecutive_no_change} 次无变化")
-
+                    
                     # 连续3次没有变化才认为没有更多数据
                     if consecutive_no_change >= 3:
                         logger.info("连续3次滚动无新数据,停止滚动")
                         no_more_data = True
                 else:
                     consecutive_no_change = 0  # 重置计数器
-                    logger.info(
-                        f"当前已加载 {new_count} 条品牌数据 (初始 {initial_count} + 新增 {new_count - initial_count})")
+                    logger.info(f"当前已加载 {new_count} 条品牌数据 (初始 {initial_count} + 新增 {new_count - initial_count})")
                     prev_count = new_count
-
+                    
                 if prev_count >= max_records:
                     logger.info(f"已达到最大记录数 {max_records},停止加载")
                     break
@@ -1231,7 +1393,9 @@ class QianguaMcnRankSpider:
             # 统计本次滚动总共获取的API数据
             total_api_count = len(self.api_data.get('GetMcnBrandList', []))
             logger.info(f"滚动完成,共滚动 {scroll_count} 次,获取 {total_api_count} 次GetMcnBrandList接口数据")
-
+            total_api_count = len(self.api_data.get('GetMcnBrandList', []))
+            logger.info(f"滚动完成,共滚动 {scroll_count} 次,获取 {total_api_count} 次GetMcnBrandList接口数据")
+            
             final_count = self.page.evaluate('''
                 () => {
                     return document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom').length;
@@ -1243,6 +1407,264 @@ class QianguaMcnRankSpider:
         except Exception as e:
             logger.error(f"滚动加载品牌数据时出错: {str(e)}")
             return 0
+
+    def click_brand_item_and_view(self, index, year_month, org_name):
+        """点击品牌列表中的某一项并查看详情"""
+        try:
+            logger.info(f"点击第 {index + 1} 个品牌并查看详情...")
+
+            # 清空之前的API数据
+            if 'GetMcnBrandNoteList' in self.api_data:
+                self.api_data['GetMcnBrandNoteList'] = []
+
+            # 点击查看链接 (list-row下第二个div里的col-cell里的div里的a标签)
+            clicked = self.page.evaluate(f'''
+                () => {{
+                    const listItems = document.querySelectorAll('.list-bd.page-component__scroll .item-border-bottom');
+                    if (listItems.length > {index}) {{
+                        const item = listItems[{index}];
+                        const listRow = item.querySelector('.list-row');
+                        if (listRow) {{
+                            // 获取list-row下的第二个div
+                            const divs = listRow.querySelectorAll(':scope > div');
+                            if (divs.length >= 2) {{
+                                const secondDiv = divs[1];
+                                const viewLink = secondDiv.querySelector(':scope > div > div > a');
+                                if (viewLink) {{
+                                    viewLink.click();
+                                    console.log('����˲鿴����:', viewLink.textContent);
+                                    return true;
+                                }}
+                            }}
+                        }}
+                    }}
+                    return false;
+                }}
+            ''')
+
+            if not clicked:
+                logger.warning(f"未找到第 {index + 1} 个品牌的查看链接")
+                return False
+
+            logger.info(f"成功点击第 {index + 1} 个品牌的查看链接")
+            self.human_delay(2.5, 3.5)
+
+            # 等待弹窗内容加载完成
+            self.page.wait_for_selector('.el-dialog__body', timeout=5000)
+
+            # 点击投放报价
+            logger.info("点击投放报价...")
+            result = self.page.evaluate('''
+                () => {
+                    let debugInfo = [];
+
+                    // 按照完整路径查找：el-dialog__wrapper relative-note-list-wrapper -> el-dialog customCategory-dialogscoped -> el-dialog__body
+                    const wrapper = document.querySelector('.el-dialog__wrapper.relative-note-list-wrapper');
+                    if (!wrapper) {
+                        debugInfo.push('✗ 未找到.el-dialog__wrapper.relative-note-list-wrapper');
+                        return {success: false, message: '第1步失败: 未找到.el-dialog__wrapper.relative-note-list-wrapper', debugInfo: debugInfo};
+                    }
+                    debugInfo.push('✓ 找到.el-dialog__wrapper.relative-note-list-wrapper');
+
+                    const dialogContainer = wrapper.querySelector('.el-dialog.customCategory-dialogscoped');
+                    if (!dialogContainer) {
+                        debugInfo.push('✗ 未找到.el-dialog.customCategory-dialogscoped');
+                        return {success: false, message: '第2步失败: 未找到.el-dialog.customCategory-dialogscoped', debugInfo: debugInfo};
+                    }
+                    debugInfo.push('✓ 找到.el-dialog.customCategory-dialogscoped');
+
+                    const dialog = dialogContainer.querySelector('.el-dialog__body');
+                    if (!dialog) {
+                        debugInfo.push('✗ 未找到.el-dialog__body');
+                        return {success: false, message: '第3步失败: 未找到.el-dialog__body', debugInfo: debugInfo};
+                    }
+                    debugInfo.push('✓ 找到.el-dialog__body');
+
+                    // 方法1: 尝试原始路径
+                    const noteListWrap = dialog.querySelector('.relative-note-list__wrap');
+                    if (noteListWrap) {
+                        debugInfo.push('✓ 找到.relative-note-list__wrap (使用原始路径)');
+
+                        const listCon = noteListWrap.querySelector('.list-con.scroll-list.qg-scrollo-list.scroll-mode');
+                        if (listCon) {
+                            const affixWrapper = listCon.querySelector('.affix-wrapper');
+                            if (affixWrapper) {
+                                const cAffix = affixWrapper.querySelector('.c-affix');
+                                if (cAffix) {
+                                    const listHd = cAffix.querySelector('.list-hd');
+                                    if (listHd) {
+                                        const divs = listHd.querySelectorAll(':scope > div');
+                                        debugInfo.push('原始路径: list-hd下找到 ' + divs.length + ' 个div');
+
+                                        let sortTitles = [];
+                                        for (let i = 0; i < divs.length; i++) {
+                                            const sortTitle = divs[i].querySelector('.sort-title');
+                                            if (sortTitle) {
+                                                const text = sortTitle.textContent.trim();
+                                                sortTitles.push('div' + (i+1) + ': "' + text + '"');
+
+                                                if (text === '投放报价' || text.includes('投放报价')) {
+                                                    const clickTarget = sortTitle.closest('.self-head-sort-v2') ||
+                                                                       sortTitle.closest('.allow-sort') ||
+                                                                       sortTitle.parentElement ||
+                                                                       sortTitle;
+
+                                                    // 滚动到元素位置
+                                                    clickTarget.scrollIntoView({behavior: 'smooth', block: 'center'});
+
+                                                    // 等待一小会儿
+                                                    setTimeout(() => {}, 300);
+
+                                                    // 尝试多种点击方式
+                                                    clickTarget.click();
+
+                                                    // 触发 MouseEvent
+                                                    const clickEvent = new MouseEvent('click', {
+                                                        view: window,
+                                                        bubbles: true,
+                                                        cancelable: true
+                                                    });
+                                                    clickTarget.dispatchEvent(clickEvent);
+
+                                                    return {
+                                                        success: true,
+                                                        message: '成功点击投放报价(原始路径,第' + (i+1) + '个div)',
+                                                        debugInfo: debugInfo,
+                                                        sortTitles: sortTitles
+                                                    };
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 方法2: 直接在dialog中查找所有sort-title
+                    debugInfo.push('原始路径未找到，尝试直接搜索...');
+                    const allSortTitles = dialog.querySelectorAll('.sort-title');
+                    debugInfo.push('在dialog中找到 ' + allSortTitles.length + ' 个.sort-title元素');
+
+                    let allTitles = [];
+                    for (let i = 0; i < allSortTitles.length; i++) {
+                        const sortTitle = allSortTitles[i];
+                        const text = sortTitle.textContent.trim();
+                        allTitles.push('sort-title[' + i + ']: "' + text + '"');
+
+                        if (text === '投放报价' || text.includes('投放报价')) {
+                            const clickTarget = sortTitle.closest('.self-head-sort-v2') ||
+                                               sortTitle.closest('.allow-sort') ||
+                                               sortTitle.parentElement ||
+                                               sortTitle;
+
+                            // 滚动到元素位置
+                            clickTarget.scrollIntoView({behavior: 'smooth', block: 'center'});
+
+                            // 等待一小会儿，然后点击
+                            setTimeout(() => {}, 300);
+
+                            // 尝试多种点击方式
+                            clickTarget.click();
+
+                            // 如果有 MouseEvent，也尝试触发
+                            const clickEvent = new MouseEvent('click', {
+                                view: window,
+                                bubbles: true,
+                                cancelable: true
+                            });
+                            clickTarget.dispatchEvent(clickEvent);
+
+                            return {
+                                success: true,
+                                message: '成功点击投放报价(直接搜索,第' + i + '个sort-title)',
+                                debugInfo: debugInfo,
+                                sortTitles: allTitles
+                            };
+                        }
+                    }
+
+                    return {
+                        success: false,
+                        message: '未找到包含"投放报价"的元素',
+                        debugInfo: debugInfo,
+                        sortTitles: allTitles
+                    };
+                }
+            ''')
+
+            # 打印查找结果
+            if result.get('success'):
+                logger.info(f"✓ {result.get('message')}")
+            else:
+                logger.warning(f"✗ {result.get('message')}")
+
+            if not result.get('success'):
+                logger.warning("未找到投放报价按钮")
+                self.page.keyboard.press('Escape')
+                self.human_delay(0.8, 1.4)
+                return False
+
+            logger.info("成功点击投放报价")
+            self.human_delay(2.0, 3.0)
+
+            # 等待列表重新加载
+            self.page.wait_for_load_state('networkidle', timeout=10000)
+            self.human_delay(1.5, 2.0)
+
+            # 在容器内部滚动加载更多数据
+            logger.info("滚动加载笔记数据...")
+            scroll_result = self.page.evaluate('''
+                () => {
+                    // 找到可滚动的容器
+                    const wrapper = document.querySelector('.el-dialog__wrapper.relative-note-list-wrapper');
+                    if (!wrapper) return {success: false, message: '未找到wrapper'};
+
+                    const dialog = wrapper.querySelector('.el-dialog.customCategory-dialogscoped');
+                    if (!dialog) return {success: false, message: '未找到dialog'};
+
+                    const dialogBody = dialog.querySelector('.el-dialog__body');
+                    if (!dialogBody) return {success: false, message: '未找到dialogBody'};
+
+                    const noteListWrap = dialogBody.querySelector('.relative-note-list__wrap');
+                    if (!noteListWrap) return {success: false, message: '未找到noteListWrap'};
+
+                    const listCon = noteListWrap.querySelector('.list-con.scroll-list.qg-scrollo-list.scroll-mode');
+                    if (!listCon) return {success: false, message: '未找到listCon'};
+
+                    const listBd = listCon.querySelector('.list-bd.page-component__scroll');
+                    if (!listBd) return {success: false, message: '未找到listBd'};
+
+                    // 在容器内部滚动
+                    listBd.scrollTop = listBd.scrollHeight;
+
+                    return {success: true, message: '滚动成功', scrollHeight: listBd.scrollHeight};
+                }
+            ''')
+
+            if scroll_result.get('success'):
+                logger.info(f"容器滚动成功")
+            else:
+                logger.warning(f"容器滚动失败: {scroll_result.get('message')}")
+
+            self.human_delay(1.0, 2.0)
+
+            # 按一次ESC键返回品牌列表
+            logger.info("按ESC键返回品牌列表...")
+            self.save_note_data_to_db(year_month, org_name)
+            self.page.keyboard.press('Escape')
+            self.human_delay(0.8, 1.4)
+
+            return True
+        except Exception as e:
+            logger.error(f"点击第 {index + 1} 个品牌并查看详情时出错: {str(e)}")
+            # 尝试返回
+            try:
+                self.page.keyboard.press('Escape')
+                time.sleep(1)
+            except:
+                pass
+            return False
 
     def process_organization(self, org_name):
         """处理单个机构的数据"""
@@ -1268,10 +1690,8 @@ class QianguaMcnRankSpider:
             # 循环处理每个机构
             for mcn_index in range(min(mcn_count, 5)):
                 # if org_name == '方片' and mcn_index < 4:
-                #     logger.info(f"跳过处理 {org_name} 机构的前 {mcn_index + 1} 个")
-                #     continue
-                # if org_name == '方片母婴' or org_name == '方片新媒体':
-                #     logger.info(f"跳过处理 {org_name} 机构")
+                #     logger.error(f"跳过处理 {org_name} 机构")
+                #     mcn_index += 1
                 #     continue
                 logger.info(f"处理第 {mcn_index + 1}/{mcn_count} 个机构")
 
@@ -1317,7 +1737,14 @@ class QianguaMcnRankSpider:
                         logger.warning(f"{year_month} 没有加载到品牌数据")
                         continue
 
-                    self.save_brand_data_to_db(org_name,  year_month)
+                    self.save_brand_data_to_db(org_name, year_month)
+
+                    # 循环点击每个品牌
+                    actual_brand_count = min(brand_count, self.max_brand_records)
+                    for brand_index in range(actual_brand_count):
+                        logger.info(f"处理第 {brand_index + 1}/{actual_brand_count} 个品牌")
+                        self.click_brand_item_and_view(brand_index, year_month, org_name)
+                        time.sleep(2)
 
                     # 所有品牌处理完成后,按第二次ESC返回
                     logger.info(f"所有品牌处理完成,按第二次ESC返回...")
@@ -1333,10 +1760,17 @@ class QianguaMcnRankSpider:
 
             logger.info(f"机构 {org_name} 处理完成")
             self.current_organization = None
+
+            # 清理API数据，防止内存累积
+            self.api_data.clear()
+            logger.info("已清理API数据缓存，释放内存")
+
             return True
         except Exception as e:
             logger.error(f"处理机构 {org_name} 时出错: {str(e)}")
             self.current_organization = None
+            # 异常时也清理数据
+            self.api_data.clear()
             return False
 
     def scrape_mcn_rank_data(self):
@@ -1387,31 +1821,140 @@ class QianguaMcnRankSpider:
             self.close()
 
     def close(self):
-        """关闭资源"""
+        """关闭资源 - 确保所有资源被正确释放"""
         try:
+            logger.info("开始清理资源...")
+
+            # 清理API数据
+            if hasattr(self, 'api_data'):
+                self.api_data.clear()
+                logger.debug("已清理API数据")
+
             # 移除事件监听器
             if hasattr(self, 'page') and self.page:
                 try:
                     self.page.remove_listener("response", self._handle_api_response)
-                except:
-                    pass
+                    logger.debug("已移除页面事件监听器")
+                except Exception as e:
+                    logger.debug(f"移除事件监听器失败: {e}")
 
             # 使用persistent context时,直接关闭context即可
             if hasattr(self, 'context') and self.context:
-                self.context.close()
+                try:
+                    self.context.close()
+                    logger.debug("已关闭浏览器上下文")
+                except Exception as e:
+                    logger.warning(f"关闭浏览器上下文失败: {e}")
 
             # persistent context不需要单独关闭browser
             if hasattr(self, 'browser') and self.browser:
-                self.browser.close()
+                try:
+                    self.browser.close()
+                    logger.debug("已关闭浏览器")
+                except Exception as e:
+                    logger.warning(f"关闭浏览器失败: {e}")
 
             if hasattr(self, 'playwright') and self.playwright:
-                self.playwright.stop()
+                try:
+                    self.playwright.stop()
+                    logger.debug("已停止Playwright")
+                except Exception as e:
+                    logger.warning(f"停止Playwright失败: {e}")
 
-            logger.info("所有资源已关闭")
+            logger.info("所有资源已清理完成")
         except Exception as e:
             logger.error(f"关闭资源时出错: {str(e)}")
 
 
+def run_spider_task():
+    """执行单次爬虫任务 - 确保资源正确释放"""
+    spider = None
+    try:
+        logger.info("=" * 70)
+        logger.info("千瓜MCN品牌数据抓取任务启动")
+        logger.info("=" * 70)
+
+        spider = QianguaMcnRankSpider()
+        spider.run()
+
+        logger.info("=" * 70)
+        logger.info("任务执行完成")
+        logger.info("=" * 70)
+        return True
+    except Exception as e:
+        logger.error(f"任务执行失败: {str(e)}")
+        import traceback
+        logger.error(f"错误详情: {traceback.format_exc()}")
+        return False
+    finally:
+        # 确保资源被释放
+        if spider:
+            try:
+                spider.close()
+            except:
+                pass
+            del spider
+
+            # 强制垃圾回收
+            import gc
+            gc.collect()
+            logger.info("已释放爬虫资源并执行垃圾回收")
+
+
+def main():
+    """主函数 - 支持单次执行和定时任务模式"""
+    try:
+        # 尝试读取配置
+        config = configparser.ConfigParser()
+        config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mcn_rank_config.ini')
+
+        enable_schedule = False
+        daily_time = "08:00"
+
+        if os.path.exists(config_file):
+            config.read(config_file, encoding='utf-8')
+            # 读取调度器配置（如果存在）
+            if config.has_section('SCHEDULER'):
+                enable_schedule = config.getboolean('SCHEDULER', 'enable', fallback=False)
+                daily_time = config.get('SCHEDULER', 'daily_time', fallback='08:00')
+
+        if enable_schedule:
+            # 定时模式
+            logger.info("=" * 70)
+            logger.info("千瓜MCN品牌数据抓取程序 - 定时模式")
+            logger.info(f"每天 {daily_time} 执行任务")
+            logger.info("按 Ctrl+C 停止程序")
+            logger.info("=" * 70)
+
+            # 设置定时任务
+            schedule.every().day.at(daily_time).do(run_spider_task)
+
+            logger.info(f"已设置定时任务: 每天 {daily_time}")
+            logger.info("调度器运行中...\n")
+
+            # 运行调度器
+            while True:
+                schedule.run_pending()
+                time.sleep(60)
+        else:
+            # 单次执行模式
+            logger.info("=" * 70)
+            logger.info("千瓜MCN品牌数据抓取程序 - 单次执行模式")
+            logger.info("=" * 70)
+
+            success = run_spider_task()
+            return 0 if success else 1
+
+    except KeyboardInterrupt:
+        logger.warning("\n用户手动中断程序")
+        return 0
+    except Exception as e:
+        logger.error(f"程序启动失败: {str(e)}")
+        import traceback
+        logger.error(f"错误详情: {traceback.format_exc()}")
+        return 1
+
+
 if __name__ == '__main__':
-    spider = QianguaMcnRankSpider()
-    spider.run()
+    import sys
+    sys.exit(main())

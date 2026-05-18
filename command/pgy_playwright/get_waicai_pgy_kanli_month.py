@@ -10,13 +10,22 @@ from playwright.sync_api import sync_playwright
 import traceback
 import requests
 from requests.exceptions import RequestException
+import pandas as pd
+from tkinter import filedialog, messagebox, Tk
+from urllib.parse import urlparse
 
 from unitl.common import Common
 
 """
     更新外采博主账号信息,博主变现，粉丝情况,从蒲公英抓取数据
-    重构版本：基于Playwright模拟浏览器操作，无需token
-    新版本：从API获取博主列表，数据保存到API
+    重构版本：基于Playwright模拟浏览器操作，从Excel读取蒲公英链接
+    工作流程：
+    1. 选择包含蒲公英链接的Excel文件
+    2. 读取Excel数据
+    3. 初始化浏览器并登录
+    4. 遍历每一行的蒲公英链接
+    5. 访问页面并抓取博主数据
+    6. 将数据同步到API（不回写Excel）
 """
 
 
@@ -80,7 +89,6 @@ class WaicaiPGYSpider:
         base_path = get_base_path()
         self.cookie_file = os.path.join(base_path, 'cookies.json')
         self.data_dir = os.path.join(base_path, 'data')
-        self.processed_ids_file = os.path.join(base_path, 'processed_ids.json')
 
         # 确保数据目录存在
         os.makedirs(self.data_dir, exist_ok=True)
@@ -95,6 +103,11 @@ class WaicaiPGYSpider:
         self.browser = None
         self.context = None
         self.page = None
+
+        # Excel处理相关
+        self.excel_data = None
+        self.excel_file_path = None
+        self.export_data = []  # 存储导出数据
 
         # 初始化payload结构
         self.payload = {
@@ -111,6 +124,126 @@ class WaicaiPGYSpider:
         }
 
         logger.info("外采博主数据采集器初始化完成")
+
+
+    def select_excel_file(self):
+        """选择Excel文件"""
+        try:
+            # 创建隐藏的根窗口
+            root = Tk()
+            root.withdraw()
+
+            # 显示提示信息
+            messagebox.showinfo("Excel导入", "请选择包含蒲公英链接的Excel文件\n\n文件应包含以下列："
+                                             "\n• 蒲公英链接（必填）")
+
+            # 打开文件选择对话框
+            file_path = filedialog.askopenfilename(
+                title="选择Excel文件",
+                filetypes=[("Excel文件", "*.xlsx *.xls"), ("所有文件", "*.*")]
+            )
+
+            root.destroy()
+
+            if file_path:
+                self.excel_file_path = file_path
+                logger.info(f"已选择Excel文件: {file_path}")
+                return True
+            else:
+                logger.warning("未选择文件")
+                return False
+
+        except Exception as e:
+            logger.error(f"选择Excel文件时出错: {str(e)}")
+            return False
+
+    def load_excel_data(self):
+        """加载Excel数据"""
+        try:
+            if not self.excel_file_path:
+                logger.error("未选择Excel文件")
+                return False
+
+            # 读取Excel文件
+            self.excel_data = pd.read_excel(self.excel_file_path)
+            logger.info(f"成功加载Excel数据，共 {len(self.excel_data)} 行")
+
+            # 检查是否有蒲公英链接列
+            if '蒲公英链接' not in self.excel_data.columns:
+                logger.error("Excel文件缺少'蒲公英链接'列")
+                return False
+
+            # 确保需要回写的列都存在
+            required_columns = [
+                '达人昵称', '小红书链接', '小红书ID', '粉丝量', '标签',
+                '图文报价', '视频报价', '赞藏', '地区',
+                '曝光中位数', '阅读中位数', '互动中位数', '合作品牌'
+            ]
+            for col in required_columns:
+                if col not in self.excel_data.columns:
+                    self.excel_data[col] = ''
+                    logger.info(f"添加列: {col}")
+
+            # 显示表头信息
+            logger.info(f"Excel表头: {list(self.excel_data.columns)}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"加载Excel数据时出错: {str(e)}")
+            return False
+
+    def _extract_user_id_from_url(self, pgy_url):
+        """从蒲公英链接中提取用户ID"""
+        try:
+            # 格式：https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/5c2d45eb000000000502dd2d
+            parsed = urlparse(pgy_url)
+            path_parts = parsed.path.split('/')
+            for part in path_parts:
+                if part and len(part) > 10 and not part.startswith('blogger-detail'):
+                    return part
+            return ""
+        except Exception as e:
+            logger.error(f"提取用户ID失败: {str(e)}")
+            return ""
+
+    def get_blogger_list_from_excel(self):
+        """从Excel获取博主列表"""
+        try:
+            if self.excel_data is None:
+                logger.error("Excel数据未加载")
+                return []
+
+            blogger_list = []
+            for index, row in self.excel_data.iterrows():
+                pgy_url = row.get('蒲公英链接', '')
+                if not pgy_url or pd.isna(pgy_url):
+                    continue
+
+                # 从URL中提取platform_user_id
+                platform_user_id = self._extract_user_id_from_url(pgy_url)
+                if not platform_user_id:
+                    logger.warning(f"第 {index + 1} 行：无法从链接提取用户ID: {pgy_url}")
+                    continue
+
+                # 构造与API返回格式相同的数据结构
+                blogger_data = {
+                    'platform_user_id': platform_user_id,
+                    'creator_nickname': row.get('达人昵称', '未知博主'),  # 如果Excel有昵称列就使用，否则默认值
+                    'pgy_url': pgy_url,
+                    'excel_row_index': index  # 保存Excel行索引，用于回写
+                }
+
+                blogger_list.append(blogger_data)
+
+            logger.info(f"从Excel获取到 {len(blogger_list)} 个博主数据")
+            return blogger_list
+
+        except Exception as e:
+            logger.error(f"从Excel获取博主列表失败: {str(e)}")
+            logger.error(f"错误详情: {traceback.format_exc()}")
+            return []
+
 
     def get_blogger_list_from_api(self):
         """从API获取博主列表"""
@@ -142,41 +275,26 @@ class WaicaiPGYSpider:
     def process_blogger_data(self):
         """处理博主数据，抓取博主信息"""
         try:
-            # 从API获取博主列表
-            blogger_list = self.get_blogger_list_from_api()
+            # 从Excel获取博主列表
+            blogger_list = self.get_blogger_list_from_excel()
             if not blogger_list:
                 logger.error("未获取到博主数据")
                 return False
 
-            # 加载已处理的ID列表
-            processed_ids = self._load_processed_ids()
-            logger.info(f"已处理的博主数量: {len(processed_ids)}")
-
-            # 过滤掉已处理的博主
-            new_blogger_list = []
-            for blogger in blogger_list:
-                platform_user_id = blogger.get('platform_user_id')
-                if platform_user_id and platform_user_id not in processed_ids:
-                    new_blogger_list.append(blogger)
-                else:
-                    logger.info(f"跳过已处理的博主: {blogger.get('creator_nickname', 'Unknown')} (ID: {platform_user_id})")
-
-            if not new_blogger_list:
-                logger.info("所有博主都已处理完成，没有新数据需要处理")
-                return True
-
-            logger.info(f"待处理的新博主数量: {len(new_blogger_list)}/{len(blogger_list)}")
+            logger.info(f"待处理的博主数量: {len(blogger_list)}")
 
             # 遍历每个博主数据
-            for idx, blogger in enumerate(new_blogger_list, 1):
+            for idx, blogger in enumerate(blogger_list, 1):
                 try:
                     platform_user_id = blogger.get('platform_user_id')
 
-                    pgy_url = f"https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/{platform_user_id}"
-
+                    # 优先使用Excel中的蒲公英链接，如果没有则根据platform_user_id生成
+                    pgy_url = blogger.get('pgy_url')
+                    if not pgy_url:
+                        pgy_url = f"https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/{platform_user_id}"
 
                     if not pgy_url:
-                        logger.info(f"[{idx}/{len(new_blogger_list)}] 博主蒲公英链接为空，跳过")
+                        logger.info(f"[{idx}/{len(blogger_list)}] 博主蒲公英链接为空，跳过")
                         continue
 
                     # 清空之前的数据
@@ -196,8 +314,7 @@ class WaicaiPGYSpider:
                         "client_id": 1
                     }
 
-                    logger.info(
-                        f"[{idx}/{len(new_blogger_list)}] 正在处理博主: {blogger.get('creator_nickname', 'Unknown')}")
+                    logger.info(f"[正在处理博主: {blogger.get('creator_nickname', 'Unknown')}")
                     logger.info(f"访问页面: {pgy_url}")
 
                     try:
@@ -259,6 +376,9 @@ class WaicaiPGYSpider:
                                 elif 'fans_summary' in api_url:
                                     self._process_fans_summary(api_data, blogger)
 
+                                elif 'data_summary' in api_url:
+                                    self._process_data_summary(api_data, blogger)
+
                                 elif 'notes_detail' in api_url:
                                     self._process_notes_detail(api_data, blogger)
 
@@ -266,92 +386,18 @@ class WaicaiPGYSpider:
                                 logger.error(f"处理API {api_url} 数据时出错: {str(api_error)}")
                                 continue
 
-                        # 处理数据摘要
-                        try:
-                            self.api_data.clear()
-
-                            once = self.page.locator("button:has-text('下一步')").first
-                            if once:
-                                once.click()
-
-                            # 点击"按成本"按钮
-                            dropdown_container = self.page.locator('.d-spinner-container')
-                            switch_button = dropdown_container.locator('button:has-text("按成本")').first
-                            if switch_button.is_visible(timeout=5000):
-                                switch_button.click()
-
-                            # 等待页面加载完成
-                            try:
-                                self.page.wait_for_load_state('networkidle', timeout=5000)
-                            except Exception as e:
-                                logger.warning(f"等待页面加载完成时出错: {str(e)}")
-
-                            self.common.random_sleep(8, 12)
-
-                            # 处理数据摘要API
-                            data_summary_copy = dict(self.api_data)
-                            for api_url, response_data in data_summary_copy.items():
-                                try:
-                                    if not response_data or not isinstance(response_data, dict):
-                                        continue
-
-                                    if 'data_summary' in api_url and 'data' in response_data:
-                                        api_data = response_data.get('data', {})
-                                        if api_data and isinstance(api_data, dict):
-                                            self._process_data_summary(api_data, blogger)
-                                            break
-                                except Exception as e:
-                                    logger.warning(f"处理数据摘要API时出错: {str(e)}")
-                                    continue
-
-                        except Exception as e:
-                            logger.error(f"处理数据摘要步骤时出错: {str(e)}")
-
-                        # 点击"合作笔记"按钮
-                        try:
-                            self.api_data.clear()
-                            dropdown_container = self.page.locator('.d-spinner-nested-loading')
-                            switch_button = dropdown_container.locator('button:has-text("合作笔记")').first
-                            if switch_button.is_visible(timeout=5000):
-                                switch_button.click()
-
-                            try:
-                                self.page.wait_for_load_state('networkidle', timeout=5000)
-                            except Exception as e:
-                                logger.warning(f"等待页面加载完成时出错: {str(e)}")
-
-                            self.common.random_sleep(8, 12)
-
-                            # 处理合作笔记API
-                            notes_rate_copy = dict(self.api_data)
-                            for api_url, response_data in notes_rate_copy.items():
-                                try:
-                                    if not response_data or not isinstance(response_data, dict):
-                                        continue
-
-                                    if 'notes_rate' in api_url and 'data' in response_data:
-                                        api_data = response_data.get('data', {})
-                                        if api_data and isinstance(api_data, dict):
-                                            self._process_notes_rate(api_data, blogger, 1, 3, 1, 1)
-                                            break
-                                except Exception as e:
-                                    logger.warning(f"处理合作笔记API时出错: {str(e)}")
-                                    continue
-
-                        except Exception as e:
-                            logger.error(f"处理合作笔记步骤时出错: {str(e)}")
+                        # 收集导出数据
+                        self._collect_export_data(blogger, api_data_copy)
 
                         # 调用同步接口保存数据
                         sync_result = self.sync_single_record_to_api(self.payload)
                         if sync_result:
                             logger.info(f"✓ 成功同步博主 {blogger.get('creator_nickname', 'Unknown')} 的数据到API")
-                            # 同步成功后，保存已处理的ID
-                            self._save_processed_id(platform_user_id)
                         else:
                             logger.warning(f"✗ 同步博主 {blogger.get('creator_nickname', 'Unknown')} 的数据到API失败")
 
                     else:
-                        logger.warning(f"[{idx}/{len(new_blogger_list)}] 未获取到API数据")
+                        logger.warning(f"[{idx}/{len(blogger_list)}] 未获取到API数据")
 
                 except Exception as e:
                     logger.error(f"处理第 {idx} 个博主时出错: {str(e)}")
@@ -359,6 +405,15 @@ class WaicaiPGYSpider:
                     continue
 
             logger.info("所有博主数据处理完成")
+
+            # 保存回写的Excel数据
+            if self.excel_data is not None and self.excel_file_path:
+                logger.info("准备保存回写的Excel数据...")
+                if self._save_excel_to_original():
+                    logger.info("✅ 数据已成功回写到原Excel文件")
+                else:
+                    logger.warning("⚠️ 回写Excel文件失败")
+
             return True
 
         except Exception as e:
@@ -682,49 +737,6 @@ class WaicaiPGYSpider:
                 pass
             return False
 
-    def _load_processed_ids(self):
-        """从文件加载已处理的platform_user_id列表"""
-        try:
-            if os.path.exists(self.processed_ids_file):
-                with open(self.processed_ids_file, 'r', encoding='utf-8') as f:
-                    processed_ids = json.load(f)
-
-                if isinstance(processed_ids, list):
-                    logger.info(f"已加载 {len(processed_ids)} 个已处理的ID")
-                    return set(processed_ids)  # 转换为set以便快速查询
-                else:
-                    logger.warning("processed_ids.json 格式错误，应该是数组格式")
-                    return set()
-            else:
-                logger.info("未找到已处理ID文件，将创建新文件")
-                return set()
-        except Exception as e:
-            logger.error(f"加载已处理ID时出错: {str(e)}")
-            return set()
-
-    def _save_processed_id(self, platform_user_id):
-        """追加保存单个已处理的platform_user_id到文件"""
-        try:
-            # 先加载现有的ID列表
-            processed_ids = list(self._load_processed_ids())
-
-            # 如果ID不在列表中，则添加
-            if platform_user_id not in processed_ids:
-                processed_ids.append(platform_user_id)
-
-                # 保存到文件
-                with open(self.processed_ids_file, 'w', encoding='utf-8') as f:
-                    json.dump(processed_ids, f, indent=2, ensure_ascii=False)
-
-                logger.debug(f"已保存已处理ID: {platform_user_id}")
-                return True
-            else:
-                logger.debug(f"ID {platform_user_id} 已存在于记录中")
-                return False
-        except Exception as e:
-            logger.error(f"保存已处理ID时出错: {str(e)}")
-            return False
-
     def _process_blogger_info(self, data, blogger):
         """处理博主基本信息"""
         try:
@@ -968,14 +980,201 @@ class WaicaiPGYSpider:
             raise
 
 
+    def _collect_export_data(self, blogger, api_data_dict):
+        """收集需要导出的数据"""
+        try:
+            export_row = {
+                '达人昵称': '',
+                '蒲公英链接': blogger.get('pgy_url', ''),
+                '小红书链接': '',
+                '小红书ID': '',
+                '粉丝量': '',
+                '标签': '',
+                '图文报价': '',
+                '视频报价': '',
+                '赞藏': '',
+                '地区': '',
+                '曝光中位数': '',
+                '阅读中位数': '',
+                '互动中位数': '',
+                '合作品牌': ''
+            }
+
+            # 遍历API数据
+            for api_url, response_data in api_data_dict.items():
+                try:
+                    if not response_data or not isinstance(response_data, dict):
+                        continue
+
+                    if 'data' not in response_data:
+                        continue
+
+                    api_data = response_data.get('data', {})
+                    if not api_data or not isinstance(api_data, dict):
+                        continue
+
+                    # 处理博主基本信息
+                    if 'blogger' in api_url:
+                        if 'data' in api_data and isinstance(api_data['data'], dict):
+                            blogger_data = api_data['data']
+                        else:
+                            blogger_data = api_data
+
+                        if blogger_data and isinstance(blogger_data, dict):
+                            # 达人昵称
+                            export_row['达人昵称'] = blogger_data.get('name', '')
+
+                            # 小红书链接
+                            user_id = blogger_data.get('userId', '')
+                            if user_id:
+                                export_row['小红书链接'] = f"https://www.xiaohongshu.com/user/profile/{user_id}"
+
+                            # 小红书ID
+                            export_row['小红书ID'] = blogger_data.get('redId', '')
+
+                            # 粉丝量
+                            export_row['粉丝量'] = str(blogger_data.get('fansCount', ''))
+
+                            # 标签 - 合并contentTags和featureTags
+                            tags = set()
+                            content_tags = blogger_data.get('contentTags', [])
+                            if content_tags and isinstance(content_tags, list):
+                                for tag in content_tags:
+                                    if isinstance(tag, dict):
+                                        taxonomy1 = tag.get('taxonomy1Tag')
+                                        taxonomy2 = tag.get('taxonomy2Tag')
+                                        if taxonomy1:
+                                            tags.add(str(taxonomy1))
+                                        if taxonomy2:
+                                            tags.add(str(taxonomy2))
+
+                            feature_tags = blogger_data.get('featureTags', [])
+                            if feature_tags and isinstance(feature_tags, list):
+                                for tag in feature_tags:
+                                    if tag:
+                                        tags.add(str(tag))
+
+                            export_row['标签'] = '、'.join(tags)
+
+                            # 图文报价
+                            export_row['图文报价'] = str(blogger_data.get('picturePrice', ''))
+
+                            # 视频报价
+                            export_row['视频报价'] = str(blogger_data.get('videoPrice', ''))
+
+                            # 赞藏
+                            export_row['赞藏'] = str(blogger_data.get('likeCollectCountInfo', ''))
+
+                            # 地区
+                            export_row['地区'] = blogger_data.get('location', '')
+
+                    # 处理数据摘要
+                    elif 'data_summary' in api_url:
+                        data = api_data.get('data', {})
+                        if data and isinstance(data, dict):
+                            # 曝光中位数
+                            export_row['曝光中位数'] = str(data.get('mAccumImpNum', ''))
+
+                            # 阅读中位数
+                            export_row['阅读中位数'] = str(data.get('mValidRawReadFeedNum', ''))
+
+                            # 互动中位数
+                            export_row['互动中位数'] = str(data.get('mEngagementNum', ''))
+
+                    # 处理笔记详情
+                    elif 'notes_detail' in api_url:
+                        data = api_data.get('data', {})
+                        if data and isinstance(data, dict):
+                            note_list = data.get('list', [])
+                            if note_list and isinstance(note_list, list):
+                                # 提取所有不重复的品牌名
+                                brands = set()
+                                for note in note_list:
+                                    if isinstance(note, dict):
+                                        brand_name = note.get('brandName', '')
+                                        if brand_name and brand_name.strip():
+                                            brands.add(brand_name.strip())
+
+                                export_row['合作品牌'] = '、'.join(brands)
+
+                except Exception as e:
+                    logger.warning(f"收集导出数据时处理API出错: {str(e)}")
+                    continue
+
+            # 添加到导出列表
+            self.export_data.append(export_row)
+            logger.debug(f"已收集博主 {export_row.get('达人昵称', 'Unknown')} 的导出数据")
+
+            # 回写数据到原Excel
+            if 'excel_row_index' in blogger:
+                row_index = blogger['excel_row_index']
+                try:
+                    # 更新Excel的对应行
+                    for col_name, value in export_row.items():
+                        if col_name in self.excel_data.columns and col_name != '蒲公英链接':
+                            # 蒲公英链接列不更新，因为它是源数据
+                            self.excel_data.at[row_index, col_name] = value if value else ''
+                    logger.debug(f"已更新Excel第 {row_index + 1} 行数据")
+                except Exception as update_error:
+                    logger.warning(f"更新Excel第 {row_index + 1} 行时出错: {str(update_error)}")
+
+        except Exception as e:
+            logger.error(f"收集导出数据时出错: {str(e)}")
+            logger.error(f"错误详情: {traceback.format_exc()}")
+
+    def _save_excel_to_original(self):
+        """保存Excel数据回原文件"""
+        try:
+            if not self.excel_file_path:
+                logger.error("未指定Excel文件路径")
+                return False
+
+            if self.excel_data is None:
+                logger.error("Excel数据为空")
+                return False
+
+            # 尝试保存到原文件
+            try:
+                self.excel_data.to_excel(self.excel_file_path, index=False, engine='openpyxl')
+                logger.info(f"数据已保存到: {self.excel_file_path}")
+                return True
+            except PermissionError:
+                # 如果文件被占用，保存到新文件
+                logger.warning(f"原文件被占用: {self.excel_file_path}")
+                file_dir = os.path.dirname(self.excel_file_path)
+                file_name = os.path.basename(self.excel_file_path)
+                name, ext = os.path.splitext(file_name)
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                backup_file = os.path.join(file_dir, f"{name}_已更新_{timestamp}{ext}")
+
+                self.excel_data.to_excel(backup_file, index=False, engine='openpyxl')
+                logger.info(f"数据已保存到新文件: {backup_file}")
+                return True
+
+        except Exception as e:
+            logger.error(f"保存Excel时出错: {str(e)}")
+            logger.error(f"错误详情: {traceback.format_exc()}")
+            return False
+
+
 def main():
     """主函数"""
     spider = None
     try:
-        logger.info("=== 蒲公英数据抓取程序启动 ===")
+        logger.info("=== 蒲公英数据抓取程序启动（Excel模式） ===")
         spider = WaicaiPGYSpider()
 
-        # 初始化浏览器和登录
+        # 1. 选择Excel文件
+        if not spider.select_excel_file():
+            logger.error("未选择Excel文件，程序退出")
+            return False
+
+        # 2. 加载Excel数据
+        if not spider.load_excel_data():
+            logger.error("加载Excel数据失败，程序退出")
+            return False
+
+        # 3. 初始化浏览器和登录
         spider.setup_browser()
         login_success = spider.login()
         if not login_success:
@@ -1017,3 +1216,4 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"程序启动失败: {str(e)}")
         sys.exit(1)
+

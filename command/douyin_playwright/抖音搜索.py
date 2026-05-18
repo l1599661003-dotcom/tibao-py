@@ -1,19 +1,22 @@
 import configparser
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime
 from tkinter import filedialog, messagebox, Tk
 
 import pandas as pd
+import requests
+import urllib3
 from loguru import logger
 from playwright.sync_api import sync_playwright
 import traceback
 
-from core.database_text_tibao_2 import session
-from models.models_tibao import DouyinUserList
 from unitl.common import Common
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 """
     更新外采博主账号信息,博主变现，粉丝情况,从蒲公英抓取数据
@@ -83,8 +86,10 @@ class DouyinSearchSpider:
         os.makedirs(self.data_dir, exist_ok=True)
 
         self.base_url = 'https://www.douyin.com/?recommend=1'
+        self.api_url = "https://tianji.fangpian999.com/api/admin/creatorBusiness/saveDouyinSearchCandidates"
         self.is_logged_in = False
         self.api_data = {}  # 存储API数据
+        self.is_user_search_tab = False
         self.common = Common()
 
         # 浏览器相关属性，但不立即初始化
@@ -97,7 +102,8 @@ class DouyinSearchSpider:
         self.excel_data = None
         self.excel_file_path = None
         self.required_columns = [
-            '达人昵称'
+            '达人昵称',
+            '蒲公英链接',
         ]
 
     def search_douyin_user(self, keyword):
@@ -107,9 +113,12 @@ class DouyinSearchSpider:
                 logger.error("页面未初始化")
                 return False
             
-            # 访问抖音首页
-            self.page.goto(self.base_url)
-            self.common.random_sleep(5, 10)
+            if not self.is_user_search_tab:
+                self.page.goto(self.base_url)
+                self.common.random_sleep(5, 10)
+                self.wait_for_captcha_if_needed("after_goto_home")
+            else:
+                self.wait_for_captcha_if_needed("before_reuse_user_tab")
             
             # 等待搜索框出现 - 使用多种选择器提高稳定性
             search_input = None
@@ -136,6 +145,7 @@ class DouyinSearchSpider:
                 return False
             
             # 清空搜索框并输入关键词
+            self.wait_for_captcha_if_needed("before_search")
             search_input.clear()
             search_input.fill(keyword)
             self.common.random_sleep(1, 2)
@@ -155,34 +165,38 @@ class DouyinSearchSpider:
             # 等待搜索结果加载
             logger.info(f"正在搜索: {keyword}")
             
-            # 查找用户标签 - 使用多种选择器提高稳定性
-            user_tab = None
-            selectors = [
-                "span:has-text('用户')",
-                "[data-e2e*='user']",
-                ".tab-item:has-text('用户')",
-                "div[role='tab']:has-text('用户')"
-            ]
-            
-            for selector in selectors:
-                try:
-                    user_tab = self.page.locator(selector).first
-                    if user_tab.is_visible(timeout=3000):
-                        logger.info(f"找到用户标签，使用选择器: {selector}")
-                        break
-                except:
-                    continue
-            
-            if user_tab and user_tab.is_visible():
-                # 清空之前的API数据
-                self.api_data.clear()
-                # 点击用户标签前暂停5-10秒
-                logger.info("点击用户标签前暂停...")
-                self.common.random_sleep(5, 10)
-                user_tab.click()
+            self.api_data.clear()
+            if not self.is_user_search_tab:
+                # 查找用户标签 - 使用多种选择器提高稳定性
+                user_tab = None
+                selectors = [
+                    "span:has-text('用户')",
+                    "[data-e2e*='user']",
+                    ".tab-item:has-text('用户')",
+                    "div[role='tab']:has-text('用户')"
+                ]
+
+                for selector in selectors:
+                    try:
+                        user_tab = self.page.locator(selector).first
+                        if user_tab.is_visible(timeout=3000):
+                            logger.info(f"找到用户标签，使用选择器: {selector}")
+                            break
+                    except:
+                        continue
+
+                if user_tab and user_tab.is_visible():
+                    self.wait_for_captcha_if_needed("before_click_user_tab")
+                    logger.info("点击用户标签前暂停...")
+                    self.common.random_sleep(3, 5)
+                    user_tab.click()
+                    self.is_user_search_tab = True
+                    self.wait_for_captcha_if_needed("after_click_user_tab")
+                else:
+                    logger.error("未找到用户标签")
+                    return False
             else:
-                logger.error("未找到用户标签")
-                return False
+                logger.info("Already on user search tab, skip clicking user tab.")
 
             # 等待页面加载完成
             try:
@@ -206,7 +220,7 @@ class DouyinSearchSpider:
             logger.error(f"搜索用户 {keyword} 时出错: {str(e)}")
             return False
 
-    def parse_search_results(self, keyword):
+    def parse_search_results(self, keyword, pgy_id=''):
         """解析搜索结果并存储到数据库"""
         try:
             if not self.api_data:
@@ -229,6 +243,9 @@ class DouyinSearchSpider:
             logger.info(f"搜索 {keyword} 找到 {len(user_list_data)} 个用户")
             
             # 解析每个用户数据
+            user_list_data = user_list_data[:1]
+            logger.info(f"Only save top {len(user_list_data)} Douyin user candidates for keyword: {keyword}")
+
             saved_count = 0
             skipped_count = 0
             for user_data in user_list_data:
@@ -241,6 +258,13 @@ class DouyinSearchSpider:
                         continue
                     
                     uid = user_info.get('uid', '')
+                    douyin_name = user_info.get('nickname', '')
+                    unique_id = user_info.get('unique_id') or ''
+                    douyin_id = unique_id or user_info.get('short_id') or ''
+                    douyin_signature = user_info.get('signature', '')
+                    douyin_sec_uid = user_info.get('sec_uid', '')
+                    avatar_url_list = user_info.get('avatar_thumb', {}).get('url_list', [])
+                    douyin_avatar = avatar_url_list[0] if avatar_url_list else ''
                     
                     # 检查uid是否已存在
                     existing_record = session.query(DouyinUserList).filter(DouyinUserList.uid == uid).first()
@@ -248,6 +272,16 @@ class DouyinSearchSpider:
                         # 更新上传人名字
                         old_nick_name = existing_record.nick_name
                         existing_record.nick_name = self.config['USERNAME']['username']
+                        existing_record.douyin_name = douyin_name
+                        existing_record.douyin_id = douyin_id
+                        existing_record.unique_id = unique_id
+                        existing_record.douyin_signature = douyin_signature
+                        existing_record.douyin_sec_uid = douyin_sec_uid
+                        existing_record.douyin_avatar = douyin_avatar
+                        existing_record.pgy_id = pgy_id
+                        existing_record.xhs_id = pgy_id
+                        existing_record.xhs_nickname = keyword
+                        existing_record.user_info = json.dumps(user_info, ensure_ascii=False) if user_info else None
                         existing_record.updated_at = datetime.now()
                         
                         try:
@@ -263,9 +297,17 @@ class DouyinSearchSpider:
                     db_record = DouyinUserList()
                     db_record.uid = uid
                     db_record.nick_name = self.config['USERNAME']['username']
+                    db_record.douyin_name = douyin_name
+                    db_record.douyin_id = douyin_id
+                    db_record.unique_id = unique_id
+                    db_record.douyin_signature = douyin_signature
+                    db_record.douyin_sec_uid = douyin_sec_uid
+                    db_record.douyin_avatar = douyin_avatar
+                    db_record.pgy_id = pgy_id
+                    db_record.xhs_id = pgy_id
+                    db_record.xhs_nickname = keyword
                     db_record.created_at = datetime.now()
                     db_record.updated_at = datetime.now()
-                    db_record.raw_response = json.dumps(user_data, ensure_ascii=False) if user_data else None
                     
                     # 提取基本信息
                     user_info = user_data.get('user_info', {})
@@ -273,20 +315,6 @@ class DouyinSearchSpider:
                         db_record.user_info = json.dumps(user_info, ensure_ascii=False) if user_info else None
                     
                     # 提取其他字段，将对象/数组转换为JSON字符串
-                    db_record.user_service_info = json.dumps(user_data.get('user_service_info'), ensure_ascii=False) if user_data.get('user_service_info') else None
-                    db_record.baikes = json.dumps(user_data.get('baikes'), ensure_ascii=False) if user_data.get('baikes') else None
-                    db_record.challenges = json.dumps(user_data.get('challenges'), ensure_ascii=False) if user_data.get('challenges') else None
-                    db_record.effects = json.dumps(user_data.get('effects'), ensure_ascii=False) if user_data.get('effects') else None
-                    db_record.items = json.dumps(user_data.get('items'), ensure_ascii=False) if user_data.get('items') else None
-                    db_record.mix_list = json.dumps(user_data.get('mix_list'), ensure_ascii=False) if user_data.get('mix_list') else None
-                    db_record.musics = json.dumps(user_data.get('musics'), ensure_ascii=False) if user_data.get('musics') else None
-                    db_record.position = json.dumps(user_data.get('position'), ensure_ascii=False) if user_data.get('position') else None
-                    db_record.product_info = json.dumps(user_data.get('product_info'), ensure_ascii=False) if user_data.get('product_info') else None
-                    db_record.product_list = json.dumps(user_data.get('product_list'), ensure_ascii=False) if user_data.get('product_list') else None
-                    db_record.shop_product_info = json.dumps(user_data.get('shop_product_info'), ensure_ascii=False) if user_data.get('shop_product_info') else None
-                    db_record.uniqid_position = json.dumps(user_data.get('uniqid_position'), ensure_ascii=False) if user_data.get('uniqid_position') else None
-                    db_record.userSubLightApp = json.dumps(user_data.get('userSubLightApp'), ensure_ascii=False) if user_data.get('userSubLightApp') else None
-                    db_record.is_red_uniqueid = bool(user_data.get('is_red_uniqueid', False))
                     
                     # 保存到数据库
                     try:
@@ -310,6 +338,75 @@ class DouyinSearchSpider:
         except Exception as e:
             logger.error(f"解析搜索结果时出错: {str(e)}")
             session.rollback()
+            return False
+
+    def parse_search_results(self, keyword, pgy_id=''):
+        """Send top 2 Douyin user candidates to backend API."""
+        try:
+            if not self.api_data:
+                logger.warning(f"Search {keyword} has no API data")
+                return False
+
+            user_list_data = None
+            for api_url, response_data in self.api_data.items():
+                if 'web/discover/search' in api_url:
+                    data = response_data.get('data', {})
+                    if 'user_list' in data:
+                        user_list_data = data['user_list']
+                        break
+
+            if not user_list_data:
+                logger.warning(f"Search {keyword} did not return user_list")
+                return False
+
+            skipped_count = 0
+            item_list = []
+            for user_data in user_list_data[:2]:
+                user_info = user_data.get('user_info') or {}
+                unique_id = user_info.get('unique_id') or ''
+                douyin_name = user_info.get('nickname') or ''
+                douyin_signature = user_info.get('signature') or ''
+                douyin_sec_uid = user_info.get('sec_uid') or ''
+                avatar_url_list = (user_info.get('avatar_thumb') or {}).get('url_list') or []
+                douyin_avatar = avatar_url_list[0] if avatar_url_list else ''
+
+                if not unique_id and not douyin_sec_uid:
+                    skipped_count += 1
+                    continue
+
+                item_list.append({
+                    'pgy_id': pgy_id,
+                    'douyin_name': douyin_name,
+                    'unique_id': unique_id,
+                    'douyin_signature': douyin_signature,
+                    'douyin_sec_uid': douyin_sec_uid,
+                    'douyin_avatar': douyin_avatar,
+                })
+
+            if not item_list:
+                logger.warning(f"Search {keyword} has no valid Douyin candidates, skipped {skipped_count}")
+                return False
+
+            response = requests.post(
+                self.api_url,
+                json={'item': item_list},
+                headers={'Content-Type': 'application/json'},
+                timeout=30,
+                verify=False,
+            )
+            if response.status_code != 200:
+                logger.error(f"API request failed, status={response.status_code}, body={response.text[:500]}")
+                return False
+
+            result = response.json()
+            if result.get('code') == 200 or result.get('success') is True:
+                logger.info(f"API saved Douyin candidates: {result}")
+                return True
+
+            logger.error(f"API business error: {result}")
+            return False
+        except Exception as e:
+            logger.error(f"Parse search results failed: {str(e)}")
             return False
 
     def select_excel_file(self):
@@ -403,6 +500,7 @@ class DouyinSearchSpider:
                         continue
 
                     keyword = keyword.strip()
+                    pgy_id = self.extract_pgy_id(row.get('蒲公英链接', ''))
                     logger.info(f"第 {index + 1}/{total_rows} 行：开始搜索 '{keyword}'")
                     logger.info("-" * 30)
 
@@ -414,7 +512,7 @@ class DouyinSearchSpider:
                         continue
 
                     # 解析搜索结果并保存到数据库
-                    parse_success = self.parse_search_results(keyword)
+                    parse_success = self.parse_search_results(keyword, pgy_id)
                     if not parse_success:
                         logger.warning(f"第 {index + 1} 行：解析 '{keyword}' 搜索结果失败")
                         failed_count += 1
@@ -426,7 +524,7 @@ class DouyinSearchSpider:
                     # 添加延迟，避免请求过于频繁（30-35秒）
                     if index < total_rows - 1:  # 不是最后一行才延迟
                         logger.info("等待30-35秒后处理下一个博主...")
-                        self.common.random_sleep(30, 35)
+                        self.common.random_sleep(15, 20)
 
                 except Exception as e:
                     logger.error(f"处理第 {index + 1} 行时出错: {str(e)}")
@@ -444,6 +542,14 @@ class DouyinSearchSpider:
         except Exception as e:
             logger.error(f"处理Excel数据时出错: {str(e)}")
             return False
+
+    @staticmethod
+    def extract_pgy_id(pgy_link):
+        """Extract blogger id from a Xiaohongshu Pgy blogger-detail URL."""
+        if pd.isna(pgy_link) or pgy_link is None:
+            return ''
+        match = re.search(r'/blogger-detail/([^/?#]+)', str(pgy_link).strip())
+        return match.group(1) if match else ''
 
     def setup_logger(self):
         """设置日志配置，支持exe打包"""
@@ -471,6 +577,55 @@ class DouyinSearchSpider:
             level="DEBUG",
             encoding="utf-8"
         )
+
+    def is_captcha_visible(self):
+        """Detect common Douyin verification/captcha dialogs."""
+        if not self.page:
+            return False
+
+        captcha_selectors = [
+            "iframe[src*='captcha']",
+            "iframe[src*='verify']",
+            "div[id*='captcha']",
+            "div[class*='captcha']",
+            "div[class*='verify']",
+            "div[class*='secsdk']",
+            "text=验证码",
+            "text=验证",
+            "text=安全验证",
+            "text=请完成验证",
+            "text=拖动滑块",
+            "text=滑块",
+        ]
+
+        for selector in captcha_selectors:
+            try:
+                locator = self.page.locator(selector).first
+                if locator.is_visible(timeout=800):
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def wait_for_captcha_if_needed(self, stage, max_wait_seconds=600):
+        """Pause automation while the user manually completes captcha."""
+        if not self.is_captcha_visible():
+            return True
+
+        logger.warning(f"Detected captcha at {stage}. Please finish verification in the browser.")
+        start_time = time.time()
+        while time.time() - start_time < max_wait_seconds:
+            time.sleep(3)
+            try:
+                if not self.is_captcha_visible():
+                    self.common.random_sleep(1, 2)
+                    logger.info(f"Captcha cleared at {stage}, continue.")
+                    return True
+            except Exception as e:
+                logger.debug(f"Captcha check failed at {stage}: {str(e)}")
+
+        logger.error(f"Captcha wait timeout at {stage}.")
+        return False
 
     def setup_browser(self):
         """初始化浏览器"""

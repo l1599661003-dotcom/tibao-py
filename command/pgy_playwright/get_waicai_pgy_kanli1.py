@@ -90,6 +90,7 @@ class WaicaiPGYSpider:
         os.makedirs(self.data_dir, exist_ok=True)
 
         self.common = Common()
+        self.mcn = {}
 
         # 初始化payload结构
         self.payload = {
@@ -146,7 +147,8 @@ class WaicaiPGYSpider:
         """抓取博主信息 - 重构版本，匹配PHP逻辑"""
         try:
             # 查询需要更新的博主数据 - 匹配PHP查询逻辑
-            api_url = f"https://tianji.fangpian999.com/api/admin/creatorBusiness/getNewerCreator?platform_id=1&type=5&page={self.config['PGY_LOGIN_CONFIG']['page']}&pageSize={self.config['PGY_LOGIN_CONFIG']['pageSize']}"
+            api_url = f"https://tianji.fangpian999.com/api/admin/order/getWaicaiMcn"
+            # api_url = "http://localhost:5666/api/admin/order/getWaicaiMcn"
 
             headers = {"Content-Type": "application/json"}
             logger.info(f"正在请求API: {api_url}")
@@ -166,6 +168,20 @@ class WaicaiPGYSpider:
                 logger.debug(f"第一个博主数据示例: {response_data[0]}")
 
             for idx, url in enumerate(response_data, 1):
+                pid = url['platform_user_id']
+                order_id = url['id']
+
+                # 检查pid是否为None或空字符串
+                if not pid or not isinstance(pid, str):
+                    logger.warning(f"博主 {url.get('creator_nickname', 'Unknown')} 的platform_user_id无效，跳过")
+                    continue
+
+                if (
+                        len(pid) < 20
+                        or pid.endswith(("aeace",))
+                        or pid.startswith(("https://xhslink.com", "59631e815e87e772f99c19", "5cc164c7000000001603b80f"))
+                ):
+                    continue
                 # 清空payload数据，准备处理下一个博主
                 self.payload = {
                     "apis": [
@@ -179,11 +195,21 @@ class WaicaiPGYSpider:
                     ],
                     "client_id": 1
                 }
+                self.mcn = {}
 
                 logger.info(f"[{idx}/{len(response_data)}] 正在处理博主: {url.get('creator_nickname', 'Unknown')}")
 
                 try:
                     self._process_blogger(url)
+
+                    self.mcn['order_id'] = order_id
+                    # 调用同步接口
+                    sync_result = self.sync_mcn_to_api(self.mcn)
+                    if sync_result:
+                        logger.info(f"✓ 成功同步博主 {url.get('creator_nickname', 'Unknown')} 的mcn数据到API")
+                    else:
+                        logger.warning(f"✗ 同步博主 {url.get('creator_nickname', 'Unknown')} 的数据到API失败")
+                    time.sleep(random.uniform(3, 4))
 
                     # 调用同步接口
                     sync_result = self.sync_single_record_to_api(self.payload)
@@ -191,7 +217,7 @@ class WaicaiPGYSpider:
                         logger.info(f"✓ 成功同步博主 {url.get('creator_nickname', 'Unknown')} 的数据到API")
                     else:
                         logger.warning(f"✗ 同步博主 {url.get('creator_nickname', 'Unknown')} 的数据到API失败")
-                    time.sleep(random.uniform(8, 10))
+                    time.sleep(random.uniform(3, 4))
 
                 except Exception as blogger_error:
                     logger.error(f"处理博主 {url.get('creator_nickname', 'Unknown')} 时出错: {str(blogger_error)}")
@@ -217,6 +243,10 @@ class WaicaiPGYSpider:
             }
             data = get_blogger_info(url['platform_user_id'], headers)
             logger.info(f"基本信息: {data}")
+            if data.get("noteSign"):
+                noteSign = data.get("noteSign")
+                self.mcn['mcn_name'] = noteSign.get("name")
+                self.mcn['user_id'] = noteSign.get("userId")
             # 将数据添加到payload中
             blogger_info_index = next(
                 (i for i, item in enumerate(self.payload["apis"]) if item["tb_name"] == "blogger_info"), None)
@@ -233,6 +263,39 @@ class WaicaiPGYSpider:
         """同步单条记录到API"""
         try:
             url = "http://47.104.76.46:19000/api/v1/sync/spider/data"
+            headers = {"Content-Type": "application/json"}
+
+            try:
+                # 发送payload数据
+                response = requests.post(url, json=payload, headers=headers, timeout=30)
+            except RequestException as sync_error:
+                logger.error(f"单条数据同步请求失败: {str(sync_error)}")
+                return False
+
+            if response.status_code == 200:
+                try:
+                    response_data = response.json()  # 尝试解析 JSON 内容
+                    if response_data.get('code') == 200:  # 假设接口返回的 JSON 有 status 字段
+                        logger.debug(f"同步成功: {response_data}")
+                        return True
+                    else:
+                        logger.warning(f"同步失败，API返回错误: {response_data}")
+                        return False
+                except ValueError:
+                    logger.error(f"同步请求返回非JSON响应，无法解析: {response.text}")
+                    return False
+            else:
+                logger.warning(f"同步请求失败，HTTP 状态码: {response.status_code}, 响应: {response.text}")
+                return False
+        except Exception as e:
+            logger.warning(f"单条数据同步异常: {str(e)}")
+            logger.warning(f"错误详情: {traceback.format_exc()}")
+            return False
+
+    def sync_mcn_to_api(self, payload):
+        """同步单条记录到API"""
+        try:
+            url = "https://tianji.fangpian999.com/api/admin/order/updateWaicaiOrderMcn"
             headers = {"Content-Type": "application/json"}
 
             try:

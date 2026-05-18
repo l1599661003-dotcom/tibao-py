@@ -26,9 +26,9 @@ def export_douyin_kol_data():
             DouYinKolRealization,
             DouyinSearchList.star_id == DouYinKolRealization.douyin_user_id
         ).filter(
-            DouyinSearchList.status == 1,
-            DouyinSearchList.import_status == 1,
-            DouyinSearchList.category is not None,
+            # DouyinSearchList.status == 1,
+            DouyinSearchList.import_status == 6,
+            # DouyinSearchList.category is not None,
         ).order_by(DouyinSearchList.id)
 
         rows = query.all()

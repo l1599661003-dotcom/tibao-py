@@ -11,7 +11,7 @@ class GetPGYMediaAll:
     def __init__(self):
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-            'cookie': 'abRequestId=b43b0375-a680-549b-802f-a5ad99896ecd; a1=195406449fdxtqwjh51u1p6d7mgplq0uhf3hg4rfp50000105650; webId=ffc4f1682f0baf7ebc3eb0b29650b1a1; gid=yj248K4Kyixfyj248K44ji4FifC9AEVx2y7yqiUUKfW6kx28U1A87k888y82K288jyfYq4Dj; customerClientId=876055260878386; web_session=030037a08dc40d777f7032a7572f4ac1be9de8; x-user-id-pgy.xiaohongshu.com=6627c7a700000000070041aa; xsecappid=ratlin; acw_tc=0a0d0e0317637965066776863e47f73becc410a3945a9c4de2ef02a868227e; customer-sso-sid=68c517575448451967926272cc1sx4zcx1bseicz; solar.beaker.session.id=AT-68c517575448451967893507h8d1zgoudslpvyr2; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c517575448451967893507h8d1zgoudslpvyr2; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c517575448451967893507h8d1zgoudslpvyr2; loadts=1763796541183',
+            'cookie': 'gid=yj248K4Kyixfyj248K44ji4FifC9AEVx2y7yqiUUKfW6kx28U1A87k888y82K288jyfYq4Dj; x-user-id-creator.xiaohongshu.com=5f8a4c80000000000101cea8; a1=19cbd4da608j7krqvrv0v2g56pzevqdmsi346pvv550000220868; webId=ee720109aecc44bb320015494b743359; abRequestId=ee720109aecc44bb320015494b743359; web_session=040069b93d4fa8270a037dc3fd3b4bf9d94d46; id_token=VjEAAGqCT4+Gc7bG+lUFEiYatPHypR+NOXrJnLhrq3FKZvK977Xnx9yxtnqQBlOAi8lIKSNIuGJHckeZMQ2h/NDxcfPhnVz97rvDJYVH835CUw022vJBV0IkmSaxj3/kKfk4Rgu1; xsecappid=ratlin; customerClientId=835266960789623; x-user-id-pgy.xiaohongshu.com=69d7885d279c000000000000; customer-sso-sid=68c517633275002583154701v040vw2mio5puepl; solar.beaker.session.id=AT-68c517633275002583056394l2ffuatayz5tinyn; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c517633275002583056394l2ffuatayz5tinyn; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c517633275002583056394l2ffuatayz5tinyn; acw_tc=0a42521b17775584295816064e82ea8b5e4fdaf5bf444c97ec439e3822f53c; loadts=1777558431220',
         }
 
     def _extract_tags(self, blogger):
@@ -42,28 +42,39 @@ class GetPGYMediaAll:
         return '、'.join(tags_list) if tags_list else ''
 
     def handle(self):
-        base_data = {"searchType":0,"column":"mEngagementNum","sort":"desc","pageNum":1,"pageSize":20,"brandUserId":"62b58a79000000001b024664","marketTarget":None,"audienceGroup":[],"contentTag":["职场"],"personalTags":[],"gender":None,"location":None,"signed":-1,"featureTags":["plog"],"fansAge":0,"fansGender":0,"accumCommonImpMedinNum30d":[],"readMidNor30":[],"interMidNor30":[],"thousandLikePercent30":[],"noteType":1,"notePriceLower":200,"notePriceUpper":1200,"progressOrderCnt":[],"tradeType":"不限","tradeReportBrandIdSet":[],"excludedTradeReportBrandId":False,"estimateCpuv30d":[],"inStar":0,"firstIndustry":"","secondIndustry":"","newHighQuality":0,"filterIntention":False,"flagList":[{"flagType":"HAS_BRAND_COOP_BUYER_AUTH","flagValue":"0"},{"flagType":"IS_HIGH_QUALITY","flagValue":"0"}],"activityCodes":[],"excludeLowActive":True,"fansNumUp":0,"excludedTradeReportBrand":False,"excludedTradeInviteReportBrand":False,"filterList":[]}
-
+        base_data = {"searchType":0,"column":"mEngagementNum","sort":"desc","pageNum":1,"pageSize":20,"brandUserId":"67bbea69000000000d009ec6","trackId":"kolMatch_0cdc971198444eb2888044711a459366","marketTarget":None,"audienceGroup":[],"personalTags":[],"gender":None,"location":None,"signed":-1,"featureTags":[],"fansAge":0,"fansGender":0,"fansLocation":None,"fansMaritalStatus":-1,"fansConsumptionLevel":-1,"fansChildAgeInfo":[],"fansDevicePrice":[],"fansDeviceBrand":[],"accumCommonImpMedinNum30d":[],"readMidNor30":[],"interMidNor30":[10000,-1],"thousandLikePercent30":[],"noteType":0,"progressOrderCnt":[],"tradeType":"不限","tradeReportBrandIdSet":[],"excludedTradeReportBrandId":False,"estimateCpuv30d":[],"inStar":0,"firstIndustry":"","secondIndustry":"","newHighQuality":0,"filterIntention":False,"flagList":[{"flagType":"HAS_BRAND_COOP_BUYER_AUTH","flagValue":"0"},{"flagType":"IS_HIGH_QUALITY","flagValue":"0"}],"activityCodes":[],"excludeLowActive":False,"fansNumUp":0,"excludedTradeReportBrand":False,"excludedTradeInviteReportBrand":False,"filterList":[],"contentSceneLabel":[]}
         all_data = []  # 存储所有博主数据
+        # First request to get trackId
+        response = requests.post(
+            "https://pgy.xiaohongshu.com/api/solar/cooperator/blogger/track",
+            headers=self.headers,
+            json=base_data,
+            verify=False
+        )
+        response_data = response.json()
 
-        for i in range(1, 200):
+        base_data['trackId'] = response_data['data']['trackId']
+
+        for i in range(1, 500):
             data = base_data.copy()
             data['pageNum'] = i
 
             try:
-                # First request to get trackId
-                response = requests.post(
-                    "https://pgy.xiaohongshu.com/api/solar/cooperator/blogger/track",
-                    headers=self.headers,
-                    json=data,
-                    verify=False
-                )
-                response_data = response.json()
+                if i == 177:
+                    response = requests.post(
+                        "https://pgy.xiaohongshu.com/api/solar/cooperator/blogger/track",
+                        headers=self.headers,
+                        json=data,
+                        verify=False
+                    )
+                    response_data = response.json()
 
-                data['trackId'] = response_data['data']['trackId']
+                    data['trackId'] = response_data['data']['trackId']
+                    time.sleep(3)
+
 
                 # Sleep to avoid rate limiting
-                time.sleep(6)
+                # time.sleep(3)
 
                 # Second request to get blogger data
                 response1 = requests.post(
@@ -89,6 +100,7 @@ class GetPGYMediaAll:
                         '蒲公英链接': f"https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/{blogger.get('userId', '')}",
                         '博主身份标签': '、'.join(blogger.get('personalTags', [])) if isinstance(blogger.get('personalTags', []), list) else blogger.get('personalTags', ''),
                         '昵称': blogger.get('name', ''),
+                        'uid': blogger.get('userId', ''),
                         '主页链接': f"https://www.xiaohongshu.com/user/profile/{blogger.get('userId', '')}",
                         '阅读中位数（日常）': blogger.get('clickMidNum', ''),
                         '互动中位数（日常）': blogger.get('mengagementNum', ''),
@@ -99,6 +111,7 @@ class GetPGYMediaAll:
                         '合作行业': blogger.get('tradeType', ''),
                         '小红书ID': blogger.get('redId', ''),
                         '粉丝数': blogger.get('fansNum', ''),
+                        '千赞比例': blogger.get('thousandLikePercent30', ''),
                         '标签': tags,
                     }
                     all_data.append(row_data)

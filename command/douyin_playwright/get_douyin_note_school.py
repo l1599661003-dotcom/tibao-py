@@ -362,7 +362,7 @@ class DouyinNoteSpider:
             logger.info("开始运行抖音笔记爬虫")
             logger.info("=" * 60)
 
-            users = session.query(PgyUser).filter(PgyUser.douyin_xsec_token is not None).all()
+            users = session.query(PgyUser).filter(PgyUser.status == 1, PgyUser.douyin_xsec_token is not None).all()
             logger.info(f"查询到 {len(users)} 个抖音用户")
 
             if len(users) == 0:

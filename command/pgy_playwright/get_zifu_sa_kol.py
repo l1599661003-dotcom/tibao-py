@@ -234,7 +234,7 @@ class PGYSpider:
                 logger.info("等待5分钟后重试...")
                 time.sleep(300)  # 5分钟 = 300秒
                 return
-            urls = session.query(Creator).all()
+            urls = session.query(Creator).filter(Creator.status == 2).all()
 
             for item in urls:
                 try:
@@ -271,77 +271,114 @@ class PGYSpider:
                             api_data = response_data['data']
                             if 'blogger' in api_url:
                                 self._process_blogger(api_data, item)
+                            if 'notes_detail' in api_url:
+                                should_continue_pagination = self._process_notes_detail(api_data, item)
+                                if should_continue_pagination:
+                                    logger.info("开始处理分页数据...")
+                                    page_count = 1
+
+                                    while self._click_next_page():
+                                        page_count += 1
+                                        logger.info(f"正在处理第 {page_count} 页数据...")
+
+                                        # 等待API数据加载
+                                        self.common.random_sleep(7, 10)
+
+                                        # 处理当前页数据
+                                        for api_url, response_data in self.api_data.items():
+                                            if 'notes_detail' in api_url and 'data' in response_data:
+                                                api_data = response_data['data']
+                                                should_continue_pagination = self._process_notes_detail(api_data, item)
+                                                break
+
+                                        # 如果不应该继续分页，退出循环
+                                        if not should_continue_pagination:
+                                            logger.info(f"第 {page_count} 页数据距离今天超过90天，停止分页")
+                                            break
+
+                                        # 清空当前页的API数据，准备处理下一页
+                                        self.api_data.clear()
+
+                                    logger.info(f"分页处理完成，共处理了 {page_count} 页数据")
+                                else:
+                                    logger.info("第一页数据距离今天超过90天，无需分页")
 
                         self.api_data.clear()
 
                         # 所有 API 数据处理完毕后，先点击合作笔记按钮，然后开始分页
-                        try:
-                            # 点击合作笔记按钮
-                            logger.info("准备点击合作笔记按钮")
-                            try:
-                                # 使用更精确的选择器路径查找合作笔记按钮
-                                # 路径: d-card-content > #noteCase > .note-type__select > .d-segment > .d-space > .d-segment-item-muted
-                                cooperation_note_button = self.page.locator("#noteCase .note-type__select .d-segment .d-space .d-segment-item.d-segment-item-muted").filter(has_text="合作笔记").first
-                                if cooperation_note_button.is_visible(timeout=5000):
-                                    cooperation_note_button.click()
-                                    logger.info("成功点击合作笔记按钮")
-                                    # 等待页面加载和API响应
-                                    self.common.random_sleep(3, 5)
-                                    try:
-                                        self.page.wait_for_load_state('networkidle', timeout=5000)
-                                    except Exception as e:
-                                        logger.warning(f"等待页面加载完成时出错: {str(e)}")
-                                else:
-                                    logger.warning("未找到合作笔记按钮")
-                            except Exception as e:
-                                logger.error(f"点击合作笔记按钮时出错: {str(e)}")
-
-                            self.api_data.clear()
-                            # 处理第一页笔记详情数据
-                            notes_data_copy = dict(self.api_data)
-                            should_continue_pagination = True
-
-                            # 处理第一页数据
-                            for api_url, response_data in notes_data_copy.items():
-                                if 'notes_detail' in api_url and 'data' in response_data:
-                                    api_data = response_data['data']
-                                    # 检查是否应该继续分页
-                                    should_continue_pagination = self._process_notes_detail(api_data, item)
-                                    break
-
-                            # 如果应该继续分页，继续处理后续页面
-                            if should_continue_pagination:
-                                logger.info("开始处理分页数据...")
-                                page_count = 1
-
-                                while self._click_next_page():
-                                    page_count += 1
-                                    logger.info(f"正在处理第 {page_count} 页数据...")
-
-                                    # 等待API数据加载
-                                    self.common.random_sleep(7, 10)
-
-                                    # 处理当前页数据
-                                    for api_url, response_data in self.api_data.items():
-                                        if 'notes_detail' in api_url and 'data' in response_data:
-                                            api_data = response_data['data']
-                                            should_continue_pagination = self._process_notes_detail(api_data, item)
-                                            break
-
-                                    # 如果不应该继续分页，退出循环
-                                    if not should_continue_pagination:
-                                        logger.info(f"第 {page_count} 页数据距离今天超过90天，停止分页")
-                                        break
-
-                                    # 清空当前页的API数据，准备处理下一页
-                                    self.api_data.clear()
-
-                                logger.info(f"分页处理完成，共处理了 {page_count} 页数据")
-                            else:
-                                logger.info("第一页数据距离今天超过90天，无需分页")
-
-                        except Exception as db_error:
-                            logger.error(f"更新数据库时出错: {str(db_error)}")
+                        # try:
+                        #     # 点击合作笔记按钮
+                        #     logger.info("准备点击合作笔记按钮")
+                        #     try:
+                        #         # 使用更精确的选择器路径查找合作笔记按钮
+                        #         # 路径: d-card-content > #noteCase > .note-type__select > .d-segment > .d-space > .d-segment-item-muted
+                        #         cooperation_note_button = self.page.locator("#noteCase .note-type__select .d-segment .d-space .d-segment-item.d-segment-item-muted").filter(has_text="合作笔记").first
+                        #         if cooperation_note_button.is_visible(timeout=5000):
+                        #             cooperation_note_button.click()
+                        #             logger.info("成功点击合作笔记按钮")
+                        #             # 等待页面加载和API响应
+                        #             try:
+                        #                 self.page.wait_for_load_state('networkidle', timeout=5000)
+                        #             except Exception as e:
+                        #                 logger.warning(f"等待页面加载完成时出错: {str(e)}")
+                        #             notes_data_copy = dict(self.api_data)
+                        #             for api_url, response_data in notes_data_copy.items():
+                        #                 if 'notes_detail' in api_url and 'data' in response_data:
+                        #                     api_data = response_data['data']
+                        #                     # 检查是否应该继续分页
+                        #                     self._process_notes_detail(api_data, item)
+                        #
+                        #         else:
+                        #             logger.warning("未找到合作笔记按钮")
+                        #     except Exception as e:
+                        #         logger.error(f"点击合作笔记按钮时出错: {str(e)}")
+                        #
+                        #     self.api_data.clear()
+                        #     # 处理第一页笔记详情数据
+                        #     notes_data_copy = dict(self.api_data)
+                        #     should_continue_pagination = True
+                        #
+                        #     # 处理第一页数据
+                        #     for api_url, response_data in notes_data_copy.items():
+                        #         if 'notes_detail' in api_url and 'data' in response_data:
+                        #             api_data = response_data['data']
+                        #             # 检查是否应该继续分页
+                        #             should_continue_pagination = self._process_notes_detail(api_data, item)
+                        #             break
+                        #
+                        #     # 如果应该继续分页，继续处理后续页面
+                        #     if should_continue_pagination:
+                        #         logger.info("开始处理分页数据...")
+                        #         page_count = 1
+                        #
+                        #         while self._click_next_page():
+                        #             page_count += 1
+                        #             logger.info(f"正在处理第 {page_count} 页数据...")
+                        #
+                        #             # 等待API数据加载
+                        #             self.common.random_sleep(7, 10)
+                        #
+                        #             # 处理当前页数据
+                        #             for api_url, response_data in self.api_data.items():
+                        #                 if 'notes_detail' in api_url and 'data' in response_data:
+                        #                     api_data = response_data['data']
+                        #                     should_continue_pagination = self._process_notes_detail(api_data, item)
+                        #                     break
+                        #
+                        #             # 如果不应该继续分页，退出循环
+                        #             if not should_continue_pagination:
+                        #                 logger.info(f"第 {page_count} 页数据距离今天超过90天，停止分页")
+                        #                 break
+                        #
+                        #             # 清空当前页的API数据，准备处理下一页
+                        #             self.api_data.clear()
+                        #
+                        #         logger.info(f"分页处理完成，共处理了 {page_count} 页数据")
+                        #     else:
+                        #         logger.info("第一页数据距离今天超过90天，无需分页")
+                        #
+                        # except Exception as db_error:
+                        #     logger.error(f"更新数据库时出错: {str(db_error)}")
                             # 继续处理下一个博主，不退出程序
 
                     else:
@@ -449,7 +486,7 @@ class PGYSpider:
                 return False
 
             # 检查最后一条数据的时间，判断是否应该继续分页
-            if last_date >= '2025-04-01':
+            if last_date >= '2025-11-23':
                 should_continue = True
             else:
                 should_continue = False

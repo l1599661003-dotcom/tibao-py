@@ -478,6 +478,8 @@ class XingtuSpider:
 
             wait_time = random.uniform(10, 15)
             time.sleep(wait_time)
+            if page_num == 50:
+                continue
 
         logger.info(f"所有页面处理完成，共处理 {self.processed_pages} 页")
 
@@ -516,6 +518,7 @@ class XingtuSpider:
                             DouyinSearchList.star_id == author_data['star_id']).first()
                         if existing_data:
                             authors_skipped += 1
+                            existing_data.import_status = 6
                             continue
 
                         # 创建新记录
@@ -527,6 +530,8 @@ class XingtuSpider:
                             task_infos=json.dumps(author_data.get('task_infos', {}), ensure_ascii=False),
                             category=self.config['category']['name'],
                             created_at=datetime.now(),
+                            updated_at=datetime.now(),
+                            import_status=6,
                         )
                         session.add(detail)
                         authors_added += 1

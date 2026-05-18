@@ -29,7 +29,7 @@ class QianguaBusinessIncomeSpider:
         self.current_mcn_user_id = None
         self.click_timestamp = 0  # 记录点击时间戳
         self.cookie_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cookies.json')
-        self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'business_income_config.ini')
+        self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'get_qiangua_rank.ini')
         self.load_config()
         self.setup_browser()
 
@@ -58,7 +58,7 @@ class QianguaBusinessIncomeSpider:
             self.items_per_page = 20
             self.click_delay_min = 0.8
             self.click_delay_max = 1.8
-            self.query_month = '2025-12'
+            self.query_month = '2026-01'
 
     def human_delay(self, min_sec=None, max_sec=None):
         """模拟人工延迟"""
@@ -76,23 +76,26 @@ class QianguaBusinessIncomeSpider:
 
     def setup_browser(self):
         self.playwright = sync_playwright().start()
-        user_data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'xiaohongshu_notes', 'chrome_user_data')
+        # 使用小红书的chrome_user_data目录，共享登录状态
+        user_data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'xiaohongshu_notes',
+                                     'chrome_user_data')
         os.makedirs(user_data_dir, exist_ok=True)
 
         self.context = self.playwright.chromium.launch_persistent_context(
             user_data_dir,
             headless=False,
-            channel="chrome",
+            channel="chrome",  # 使用Chrome而不是Chromium
             executable_path=r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            no_viewport=True,
+            no_viewport=True,  # 不设置固定viewport，允许窗口最大化
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             args=[
-                '--disable-blink-features=AutomationControlled',
+                '--disable-blink-features=AutomationControlled',  # 隐藏自动化特征
                 '--no-sandbox',
                 '--disable-web-security',
-                '--start-maximized',
+                '--start-maximized',  # 启动时最大化
             ]
         )
+        self.browser = None  # 使用persistent context时不需要browser对象
         self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
         self.page.set_default_timeout(20000)
         self.page.on("response", self._handle_api_response)
@@ -194,19 +197,19 @@ class QianguaBusinessIncomeSpider:
             self.page.click("text=登录/注册")
             self.human_delay(1.5, 2.5)
 
-            self.page.click("text=手机登录")
-            self.human_delay(1.5, 2.5)
-
-            self.page.fill("input[placeholder='请输入手机号']", '13151572333')
-            self.human_delay(1.0, 1.8)
-            self.page.fill("input[placeholder='请输入登录密码']", '12345678abc')
-            self.human_delay(1.0, 1.8)
-
-            self.page.click('.el-checkbox__inner')
-            self.human_delay(0.8, 1.4)
-
-            self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
-            self.human_delay(1.0, 2.0)
+            # self.page.click("text=手机登录")
+            # self.human_delay(1.5, 2.5)
+            #
+            # self.page.fill("input[placeholder='请输入手机号']", '13151572333')
+            # self.human_delay(1.0, 1.8)
+            # self.page.fill("input[placeholder='请输入登录密码']", '12345678abc')
+            # self.human_delay(1.0, 1.8)
+            #
+            # self.page.click('.el-checkbox__inner')
+            # self.human_delay(0.8, 1.4)
+            #
+            # self.page.click('button[class="el-button el-button--primary"][style="width: 200px;"]')
+            # self.human_delay(1.0, 2.0)
 
             logger.info("已点击登录按钮,等待滑块验证...")
             logger.info("请手动完成滑块验证并点击登录!")

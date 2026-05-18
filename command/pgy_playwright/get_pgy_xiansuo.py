@@ -6,6 +6,7 @@ import configparser
 import time
 import requests
 from datetime import datetime, timedelta
+from pathlib import Path
 import cv2
 from loguru import logger
 from playwright.sync_api import sync_playwright
@@ -15,8 +16,8 @@ from models.models_tibao import FpPgyInvitationsInfo, FpPgyInvitationsMessage
 from unitl.common import Common
 
 """
-    更新外采博主账号信息,博主变现，粉丝情况,从蒲公英抓取数据
-    重构版本：基于Playwright模拟浏览器操作，无需token
+    更新外采博主账号信息,博主变现，粉丝情况,从蒲公英抓取数据1
+    重构版本：基于Playwright模拟浏览器操作，无需token版
 """
 
 
@@ -58,27 +59,6 @@ def load_config():
         'PGY_USER_ID': {
             'user_id': config.get('PGY_USER', 'user_id'),
         },
-        'BROWSER_CONFIG': {
-            'headless': config.getboolean('BROWSER', 'headless'),
-            'viewport': {
-                'width': config.getint('BROWSER', 'viewport_width'),
-                'height': config.getint('BROWSER', 'viewport_height')
-            },
-            'user_agent': config.get('BROWSER', 'user_agent'),
-            'timeout': config.getint('BROWSER', 'timeout'),
-            'args': [
-                '--disable-blink-features=AutomationControlled',
-                '--disable-gpu',
-                '--no-sandbox',
-                '--disable-dev-shm-usage',
-            ]
-        },
-        'DELAY_CONFIG': {
-            'between_requests': tuple(map(int, config.get('DELAY', 'between_requests').split(','))),
-            'page_load_wait': tuple(map(int, config.get('DELAY', 'page_load_wait').split(','))),
-            'api_wait': tuple(map(int, config.get('DELAY', 'api_wait').split(','))),
-            'login_wait': tuple(map(int, config.get('DELAY', 'login_wait').split(','))),
-        },
         'SCHEDULER_CONFIG': {
             'enable_scheduler': config.getboolean('SCHEDULER', 'enable_scheduler'),
             'daily_time': config.get('SCHEDULER', 'daily_time'),
@@ -86,7 +66,7 @@ def load_config():
             'check_interval': config.getint('SCHEDULER', 'check_interval')
         },
         'LOOP_CONFIG': {
-            'cycle_interval_hours': config.getint('LOOP', 'cycle_interval_hours', fallback=1),
+            'cycle_interval_minutes': config.getint('LOOP', 'cycle_interval_minutes', fallback=30),
             'enable_loop': config.getboolean('LOOP', 'enable_loop', fallback=True)
         },
         'USER_NAME': {
@@ -121,6 +101,10 @@ class PGYSpider:
         self.api_data = {}  # 存储API数据
         self.current_user_data = {}
         self.progress_file = os.path.join(self.data_dir, 'scraping_progress.json')
+        self.cookie_warning_state_file = os.path.join(self.data_dir, 'cookie_warning_state.json')
+        self.cookie_expiry_days = 7
+        self.cookie_warning_days = 6.5
+        self.login_expired_notified = False
 
         self.common = Common()
 
@@ -175,27 +159,46 @@ class PGYSpider:
         if hasattr(sys, '_MEIPASS'):
             # exe环境下，使用exe文件所在目录的ms-playwright（不是临时解压目录）
             exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-            playwright_browsers_path = os.path.join(exe_dir, 'ms-playwright')
+            playwright_browsers_path = self._resolve_playwright_browsers_path()
         else:
             # 开发环境下，使用当前目录同级的ms-playwright
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            playwright_browsers_path = os.path.join(current_dir, 'ms-playwright')
+            playwright_browsers_path = self._resolve_playwright_browsers_path()
 
         # 设置环境变量
-        if os.path.exists(playwright_browsers_path):
+        if playwright_browsers_path and os.path.exists(playwright_browsers_path):
             os.environ['PLAYWRIGHT_BROWSERS_PATH'] = playwright_browsers_path
             logger.info(f"使用自定义浏览器路径: {playwright_browsers_path}")
 
+        if not (playwright_browsers_path and os.path.exists(playwright_browsers_path)):
+            os.environ.pop('PLAYWRIGHT_BROWSERS_PATH', None)
+            logger.info("鏈壘鍒板彲鐢ㄧ殑鑷畾涔夋祻瑙堝櫒鐩綍锛屽皢浣跨敤Playwright榛樿缂撳瓨璺緞")
+
         self.playwright = sync_playwright().start()
         # 配置浏览器选项
-        self.browser = self.playwright.chromium.launch(
-            headless=self.config['BROWSER_CONFIG']['headless'],
-            args=self.config['BROWSER_CONFIG']['args']
-        )
+        try:
+            self.browser = self.playwright.chromium.launch(
+                headless=False,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-gpu',
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                ]
+            )
+        except Exception as e:
+            logger.error(f"鍚姩Playwright娴忚鍣ㄥけ璐?: {str(e)}")
+            logger.error(
+                "濡傛灉鏄墦鍖呭悗exe杩愯锛岃纭繚宸插畨瑁匡紙鍏朵腑涓€绉嶅嵆鍙級锛?1. exe鍚岀洰褰曚笅鐨刴s-playwright 2. exe鍚岀洰褰曚笅鐨?cache\\ms-playwright 3. 褰撳墠鐢ㄦ埛缂撳瓨鐩綍涓殑Playwright Chromium"
+            )
+            raise
         # 创建上下文
         self.context = self.browser.new_context(
-            viewport=self.config['BROWSER_CONFIG']['viewport'],
-            user_agent=self.config['BROWSER_CONFIG']['user_agent']
+            viewport={
+                'width': 1512,
+                'height': 768
+            },
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
         )
 
         # 尝试加载已保存的Cookie
@@ -205,6 +208,7 @@ class PGYSpider:
             try:
                 self.page.goto(self.base_url)
                 self.common.random_sleep(2, 3)
+                self._dismiss_popups()
 
                 # 检查是否存在用户头像元素
                 userSide = self.page.locator(".home_head_user_info").all()
@@ -226,9 +230,44 @@ class PGYSpider:
             self.is_logged_in = False
 
         # 设置页面超时时间
-        self.page.set_default_timeout(self.config['BROWSER_CONFIG']['timeout'])
+        self.page.set_default_timeout(20000)
         # 设置响应监听
         self.page.on("response", self._handle_api_response)
+
+    def _resolve_playwright_browsers_path(self):
+        """瑙ｆ瀽鍙敤鐨凱laywright娴忚鍣ㄧ洰褰曪紝鍏煎PyInstaller onefile"""
+        candidate_paths = []
+
+        if hasattr(sys, '_MEIPASS'):
+            exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            candidate_paths.extend([
+                os.path.join(exe_dir, 'ms-playwright'),
+                os.path.join(exe_dir, '.cache', 'ms-playwright'),
+            ])
+        else:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            candidate_paths.extend([
+                os.path.join(current_dir, 'ms-playwright'),
+                os.path.join(Path.home(), 'AppData', 'Local', 'ms-playwright'),
+                os.path.join(Path.home(), '.cache', 'ms-playwright'),
+            ])
+
+        candidate_paths.extend([
+            os.path.join(Path.home(), 'AppData', 'Local', 'ms-playwright'),
+            os.path.join(Path.home(), '.cache', 'ms-playwright'),
+        ])
+
+        checked_paths = []
+        for path in candidate_paths:
+            normalized_path = os.path.normpath(path)
+            if normalized_path in checked_paths:
+                continue
+            checked_paths.append(normalized_path)
+            if os.path.exists(normalized_path):
+                return normalized_path
+
+        logger.warning(f"鏈壘鍒癙laywright娴忚鍣ㄧ洰褰?锛屽凡妫€鏌? {checked_paths}")
+        return None
 
     def login(self):
         """
@@ -301,6 +340,7 @@ class PGYSpider:
                 self.page.wait_for_load_state('networkidle', timeout=5000)
             except Exception as e:
                 logger.error(f"等待页面加载完成时出错: {str(e)}")
+            self._dismiss_popups()
 
             # 开始分页处理
             page_count = 0
@@ -321,16 +361,25 @@ class PGYSpider:
                 if self.api_data:
                     # 创建api_data的副本进行遍历
                     api_data_copy = dict(self.api_data)
-                    # 处理消息列表API数据
+
                     for api_url, response_data in api_data_copy.items():
                         if 'api/solar/user/info' in api_url and 'data' in response_data:
                             api_data = response_data['data']
                             if api_data['code'] == 0 and 'data' in api_data:
-                                message_list = api_data['data']
+                                user_info = api_data['data']
                                 self.current_user_data.update({
-                                    'platform_user_id' : message_list['redId'],
-                                    'platform_nickname' : message_list['nickName'],
+                                    'platform_user_id': user_info.get('redId', ''),
+                                    'platform_nickname': user_info.get('nickName', ''),
                                 })
+                                break
+
+                    if not self.current_user_data.get('platform_user_id'):
+                        logger.warning(f"第 {page_count} 页未获取到用户信息，跳过当前页消息处理")
+                        self.api_data.clear()
+                        continue
+
+                    # 处理消息列表API数据
+                    for api_url, response_data in api_data_copy.items():
 
                         if 'api/adsmessage/solar/message/list' in api_url and 'data' in response_data:
                             try:
@@ -436,6 +485,7 @@ class PGYSpider:
                 # 等待页面加载和API响应
                 self.api_data.clear()
                 self.current_user_data.clear()
+                processed_successfully = False
                 agency_name = self.extract_agency_name(message.platform_content)
                 # 访问页面
                 page_url = f"https://pgy.xiaohongshu.com/solar/pre-trade/invite-detail?id={message.platform_message_id}"
@@ -447,6 +497,7 @@ class PGYSpider:
                     self.page.wait_for_load_state('networkidle', timeout=5000)
                 except Exception as e:
                     logger.error(f"等待页面加载完成时出错: {str(e)}")
+                self._dismiss_popups()
 
                 if self.api_data:
                     # 创建api_data的副本进行遍历
@@ -470,11 +521,13 @@ class PGYSpider:
                                     if existing_record:
                                         logger.info(
                                             f"邀请信息已存在: kol_id={message.platform_kol_id}, extracted_id={message.platform_message_id}")
+                                        processed_successfully = True
                                         continue
-                                    if invite_info.get('kolName', '') == 2:
+                                    if invite_info.get('kolIntention', '') == 2:
                                         message.status = 2
                                         session.commit()
                                         logger.info(f"{message.platform_message_id}博主不感兴趣，跳过")
+                                        processed_successfully = True
                                         continue
                                     self.current_user_data.update({
                                         'message_id' : self._extract_id_from_content(message.platform_content),
@@ -572,6 +625,7 @@ class PGYSpider:
 
                                         session.add(invitation_info)
                                         session.commit()
+                                        processed_successfully = True
                                         logger.info(f"插入的数据详情: ID: {invitation_info.id}, 博主={invitation_info.blogger_name}, 品牌={invitation_info.brand_name}, 联系方式={invitation_info.contact_information}")
 
                                         # 立即同步到API
@@ -594,10 +648,13 @@ class PGYSpider:
                                     logger.error(f"invite_info内容: {invite_info}")
                                     continue
 
-                    self.common.random_sleep(3, 6)  # 防止请求过快
-                    message.status = 1
-                    session.commit()
-                    logger.info(f"已更新消息状态为已处理: {message.platform_message_id}")
+                    if processed_successfully:
+                        self.common.random_sleep(3, 6)  # 防止请求过快
+                        message.status = 1
+                        session.commit()
+                        logger.info(f"已更新消息状态为已处理: {message.platform_message_id}")
+                    else:
+                        logger.warning(f"消息未处理成功，保留为待处理状态: {message.platform_message_id}")
 
                 self.common.random_sleep(3, 6)  # 防止请求过快
 
@@ -630,6 +687,78 @@ class PGYSpider:
             return match.group(1)
         return ''
 
+    def _dismiss_popups(self):
+        """
+        尝试关闭页面上的弹层和遮罩，避免挡住后续操作
+        """
+        try:
+            close_selectors = [
+                "button[aria-label='关闭']",
+                "button[aria-label='Close']",
+                ".close",
+                ".close-btn",
+                ".close-button",
+                ".modal-close",
+                ".ant-modal-close",
+                ".ant-drawer-close",
+                ".d-modal-close",
+                ".d-drawer-close",
+                "[data-testid='close']",
+            ]
+
+            closed_count = 0
+            for selector in close_selectors:
+                try:
+                    locator = self.page.locator(selector).first
+                    if locator.count() > 0 and locator.is_visible(timeout=500):
+                        locator.click(timeout=1000)
+                        closed_count += 1
+                        self.common.random_sleep(0, 1)
+                except Exception:
+                    continue
+
+            try:
+                self.page.keyboard.press("Escape")
+            except Exception:
+                pass
+
+            try:
+                removed = self.page.evaluate("""
+                    () => {
+                        const selectors = [
+                            '.ant-modal-wrap',
+                            '.ant-modal-mask',
+                            '.ant-drawer-mask',
+                            '.ant-drawer-wrap',
+                            '.d-modal-mask',
+                            '.modal-mask',
+                            '.modal-wrap',
+                            '.overlay',
+                            '.backdrop'
+                        ];
+                        let count = 0;
+                        for (const selector of selectors) {
+                            document.querySelectorAll(selector).forEach(node => {
+                                node.remove();
+                                count += 1;
+                            });
+                        }
+                        if (document.body && document.body.style.overflow === 'hidden') {
+                            document.body.style.overflow = '';
+                        }
+                        return count;
+                    }
+                """)
+                if closed_count or removed:
+                    logger.info(f"已处理页面弹层: 点击关闭 {closed_count} 个, 移除遮罩 {removed} 个")
+            except Exception as e:
+                if closed_count:
+                    logger.info(f"已处理页面弹层: 点击关闭 {closed_count} 个")
+                else:
+                    logger.debug(f"未移除遮罩层: {str(e)}")
+        except Exception as e:
+            logger.debug(f"清理页面弹层时跳过: {str(e)}")
+
     def _click_eyes(self):
         """
         点击联系方式对应的眼睛图标
@@ -644,6 +773,10 @@ class PGYSpider:
 
             # 检查是否存在联系方式元素
             contact_elements = self.page.locator(contact_selector).all()
+
+            if not contact_elements:
+                logger.warning("未找到联系方式元素，无法点击眼睛图标")
+                return None
 
             # 获取第一个联系方式元素
             contact_element = contact_elements[0]
@@ -757,6 +890,70 @@ class PGYSpider:
         if kwargs.get('fail_count'):
             self.monitor_data['fail_count'] = kwargs.get('fail_count')
 
+    def _load_cookie_warning_state(self):
+        try:
+            if os.path.exists(self.cookie_warning_state_file):
+                with open(self.cookie_warning_state_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.warning(f"加载Cookie提醒状态失败: {str(e)}")
+        return {}
+
+    def _save_cookie_warning_state(self, state):
+        try:
+            with open(self.cookie_warning_state_file, 'w', encoding='utf-8') as f:
+                json.dump(state, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.warning(f"保存Cookie提醒状态失败: {str(e)}")
+
+    def reset_cookie_warning_state(self):
+        state = {
+            'last_cookie_mtime': os.path.getmtime(self.cookie_file) if os.path.exists(self.cookie_file) else None,
+            'warning_sent': False,
+            'warning_sent_at': None,
+        }
+        self._save_cookie_warning_state(state)
+
+    def check_cookie_expiry_warning(self):
+        try:
+            if not os.path.exists(self.cookie_file):
+                return
+
+            cookie_mtime = os.path.getmtime(self.cookie_file)
+            cookie_age_seconds = time.time() - cookie_mtime
+            warning_threshold_seconds = self.cookie_warning_days * 24 * 3600
+
+            state = self._load_cookie_warning_state()
+            if state.get('last_cookie_mtime') != cookie_mtime:
+                state = {
+                    'last_cookie_mtime': cookie_mtime,
+                    'warning_sent': False,
+                    'warning_sent_at': None,
+                }
+
+            if cookie_age_seconds < warning_threshold_seconds or state.get('warning_sent'):
+                self._save_cookie_warning_state(state)
+                return
+
+            username = self.config.get('USER_NAME', {}).get('username', '未知用户')
+            expire_at = datetime.fromtimestamp(cookie_mtime) + timedelta(days=self.cookie_expiry_days)
+            hours_left = max(0, (expire_at - datetime.now()).total_seconds() / 3600)
+            message = (
+                f"{username} 的蒲公英登录Cookie即将过期\n"
+                f"Cookie保存时间: {datetime.fromtimestamp(cookie_mtime).strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"预计过期时间: {expire_at.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"剩余时间约: {hours_left:.1f} 小时\n"
+                f"请尽快手动登录刷新Cookie"
+            )
+            send_wecom_message(message)
+
+            state['warning_sent'] = True
+            state['warning_sent_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            self._save_cookie_warning_state(state)
+            logger.info("已发送Cookie即将过期提醒")
+        except Exception as e:
+            logger.warning(f"检查Cookie过期提醒时出错: {str(e)}")
+
     def close(self):
         """
         关闭浏览器和playwright
@@ -803,6 +1000,22 @@ class PGYSpider:
             if is_target_api and (response.request.resource_type == 'fetch' or response.request.resource_type == 'xhr'):
                 try:
                     # 检查响应状态
+                    if response.status == 401 and 'api/solar/user/info' in url:
+                        logger.warning(f"API响应状态异常: {response.status}, URL: {url}")
+                        if not self.login_expired_notified:
+                            username = self.config.get('USER_NAME', {}).get('username', '未知用户')
+                            message = (
+                                f"🚨 蒲公英登录状态已过期\n"
+                                f"用户: {username}\n"
+                                f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                                f"接口: {url}\n"
+                                f"状态码: {response.status}\n"
+                                f"请尽快重新登录并更新 Cookie。"
+                            )
+                            send_wecom_message(message)
+                            self.login_expired_notified = True
+                        return
+
                     if response.status != 200:
                         logger.warning(f"API响应状态异常: {response.status}, URL: {url}")
                         return
@@ -843,6 +1056,7 @@ class PGYSpider:
 
             with open(self.cookie_file, 'w', encoding='utf-8') as f:
                 json.dump(cookies, f, indent=2, ensure_ascii=False)
+            self.reset_cookie_warning_state()
             logger.info(f"Cookie已保存到: {self.cookie_file}")
         except Exception as e:
             logger.error(f"保存Cookie时出错: {str(e)}")
@@ -1084,6 +1298,7 @@ class PGYSpider:
                 self.page.wait_for_load_state('networkidle', timeout=5000)
             except Exception as e:
                 logger.error(f"等待页面加载完成时出错: {str(e)}")
+            self._dismiss_popups()
 
             # 开始分页处理
             page_count = 0
@@ -1290,11 +1505,12 @@ def run_spider_task():
         logger.info("登录成功，开始循环执行数据抓取...")
 
         # 3. 循环执行抓取任务
-        cycle_interval_hours = spider.config.get('LOOP_CONFIG', {}).get('cycle_interval_hours', 1)
-        cycle_interval_seconds = cycle_interval_hours
+        cycle_interval_minutes = spider.config.get('LOOP_CONFIG', {}).get('cycle_interval_minutes', 30)
+        cycle_interval_seconds = cycle_interval_minutes * 60
         
         while True:
             cycle_count += 1
+            spider.check_cookie_expiry_warning()
             
             try:
                 try:
@@ -1325,8 +1541,8 @@ def run_spider_task():
                 logger.info(f"第 {cycle_count} 轮数据抓取完成")
                 
                 # 等待指定时间后继续下一轮
-                logger.info(f"等待 {cycle_interval_hours} 秒后开始下一轮抓取...")
-                logger.info(f"下次执行时间: {(datetime.now() + timedelta(hours=cycle_interval_hours)).strftime('%Y-%m-%d %H:%M:%S')}")
+                logger.info(f"等待 {cycle_interval_minutes} 分钟后开始下一轮抓取...")
+                logger.info(f"下次执行时间: {(datetime.now() + timedelta(minutes=cycle_interval_minutes)).strftime('%Y-%m-%d %H:%M:%S')}")
                 time.sleep(cycle_interval_seconds)
                 
             except KeyboardInterrupt:
@@ -1335,7 +1551,7 @@ def run_spider_task():
             except Exception as e:
                 logger.error(f"第 {cycle_count} 轮执行出现未预期错误: {str(e)}")
                 logger.error(f"错误详情: {traceback.format_exc()}")
-                logger.info(f"等待 {cycle_interval_hours} 秒后重试...")
+                logger.info(f"等待 {cycle_interval_minutes} 分钟后重试...")
                 time.sleep(cycle_interval_seconds)  # 即使出错也等待指定时间后重试
                 continue
 

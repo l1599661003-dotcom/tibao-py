@@ -7,12 +7,12 @@ from datetime import datetime
 import cv2
 from loguru import logger
 
-from core.database_text_tibao_2 import session
+from core.localhost_fp_project import session
 from playwright.sync_api import sync_playwright
 import traceback
 
-from models.models import Creator, CreatorNoteDetail, BloggerInfo
-from models.models_tibao import FpCreatorFansSummary, FpCreatorNoteRate
+from models.models import CreatorNoteDetail
+from models.models_tibao import FpCreatorFansSummary, FpCreatorNoteRate, FpMcnUser
 from unitl.common import Common
 
 """
@@ -260,6 +260,45 @@ class PGYSpider:
             logger.error(f"登录过程出现异常: {str(e)}")
             return False
 
+    def _click_eyes(self):
+        """
+        点击笔记数据下的合作笔记按钮
+        """
+        try:
+            logger.info("开始查找合作笔记按钮...")
+
+            # 方法1: 通过完整的CSS选择器定位合作笔记按钮
+            cooperate_note_selector = "div.note-case-wrapper div.note-type__select div.d-segment div.d-space.d-space-horizontal.d-space-align-center div:has-text('合作笔记')"
+
+            # 检查是否存在合作笔记按钮
+            cooperate_note_elements = self.page.locator(cooperate_note_selector).all()
+
+            if len(cooperate_note_elements) > 0:
+                # 找到第一个合作笔记按钮
+                cooperate_note_button = cooperate_note_elements[0]
+
+                # 检查按钮是否可见
+                if cooperate_note_button.is_visible(timeout=3000):
+                    logger.info("找到合作笔记按钮，准备点击...")
+                    cooperate_note_button.click()
+                    logger.info("成功点击合作笔记按钮")
+
+                    # 等待页面网络空闲
+                    try:
+                        self.page.wait_for_load_state('networkidle', timeout=1000)
+                    except Exception as e:
+                        logger.warning(f"等待网络空闲时出错: {str(e)}")
+
+                    return True
+                else:
+                    logger.warning("合作笔记按钮不可见")
+            else:
+                logger.warning("未找到合作笔记按钮")
+
+        except Exception as e:
+            logger.error(f"点击合作笔记按钮时出错: {str(e)}")
+            return False
+
     def scrape_user_notes(self):
         try:
             if not self.is_logged_in:
@@ -270,12 +309,15 @@ class PGYSpider:
             # creator_data = session.query(CreatorBusinessOut).filter(CreatorBusinessOut.creator_mcn == 6, CreatorBusinessOut.sign_status == 1).all()
             page = int(self.config['PGY_LOGIN_CONFIG']['id'])
             page_size = int(self.config['PGY_LOGIN_CONFIG']['page_size'])
-
-            creator_data = session.query(BloggerInfo) \
-                .filter(BloggerInfo.status == 0) \
-                .offset((page - 1) * page_size) \
-                .limit(page_size) \
+            # .filter(FpMcnUser.mcn_id != 2, FpMcnUser.mcn_id != 3, FpMcnUser.status == 1) \
+            creator_data = (
+                session.query(FpMcnUser)
+                .filter(FpMcnUser.mcn_id.in_([21, 22, 25]))
+                .order_by(FpMcnUser.id.asc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
                 .all()
+            )
 
             if len(creator_data) > 0:
                 logger.info(f"找到 {len(creator_data)} 个博主数据，开始处理...")
@@ -292,8 +334,8 @@ class PGYSpider:
                         logger.info(f"正在处理博主: {item.nickname}")
 
                         # 访问页面
-                        # page_url = f"https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/{item.platform_user_id:}"
-                        page_url = item.pgy_link
+                        page_url = f"https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/{item.platform_user_id}"
+                        # page_url = item.pgy_link
                         logger.info(f"开始访问页面: {page_url}")
 
                         try:
@@ -328,24 +370,35 @@ class PGYSpider:
                                     self._process_notes_rate(api_data, item, 0)
 
                             self.api_data.clear()
-                            # 点击按钮操作
-                            dropdown_container = self.page.locator('.d-spinner-nested-loading')
-                            switch_button = dropdown_container.locator('button:has-text("合作笔记")').first
-                            if not switch_button.is_visible(timeout=5000):
-                                logger.warning(f"按钮不可见: {'button:has-text("合作笔记")'}")
-                                return False
-                            switch_button.click()
-                            logger.info(f"成功点击按钮: {'button:has-text("合作笔记")'}")
+
+                            self._click_eyes()
+                            api_data_copy = dict(self.api_data)
                             for api_url, response_data in api_data_copy.items():
                                 if 'data' not in response_data:
                                     continue
 
                                 api_data = response_data['data']
-
-                                if 'notes_rate' in api_url:
-                                    self._process_notes_rate(api_data, item, 1)
-
+                                if 'notes_detail' in api_url:
+                                    self._process_notes_detail(api_data, item)
                             self.common.random_sleep(10, 15)
+                            # 点击按钮操作
+                            # dropdown_container = self.page.locator('.d-spinner-nested-loading')
+                            # switch_button = dropdown_container.locator('button:has-text("合作笔记")').first
+                            # if not switch_button.is_visible(timeout=5000):
+                            #     logger.warning(f"按钮不可见: {'button:has-text("合作笔记")'}")
+                            #     return False
+                            # switch_button.click()
+                            # logger.info(f"成功点击按钮: {'button:has-text("合作笔记")'}")
+                            # for api_url, response_data in api_data_copy.items():
+                            #     if 'data' not in response_data:
+                            #         continue
+                            #
+                            #     api_data = response_data['data']
+                            #
+                            #     if 'notes_rate' in api_url:
+                            #         self._process_notes_rate(api_data, item, 1)
+                            #
+                            # self.common.random_sleep(10, 15)
 
                             # 所有 API 数据处理完毕后，点击笔记按钮
                             try:
@@ -427,10 +480,8 @@ class PGYSpider:
             return
 
     def _process_blogger(self, api_data, url):
-        self.creator_id = url.id
         if api_data['code'] == 0:
             data = api_data.get('data', {}) or {}
-            note_sign = data.get('noteSign') or {}
             tag_str = ''
             tags = data.get('contentTags', [])
             if tags and isinstance(tags, list):
@@ -443,21 +494,12 @@ class PGYSpider:
                 tag_str = ''
 
             try:
-                session.query(Creator).filter(Creator.id == url.id).update({
-                    Creator.creator_nickname: data.get('name') or '',
-                    Creator.platform_account_id: data.get('redId') or '',
-                    Creator.creator_location: data.get('location') or '',
-                    Creator.fans_count: data.get('fansCount') or 0,
-                    Creator.like_collect_count: data.get('likeCollectCountInfo') or 0,
-                    Creator.picture_price: data.get('picturePrice') or 0.00,
-                    Creator.video_price: data.get('videoPrice') or 0.00,
-                    Creator.creator_gender: data.get('gender') or 0,
-                    Creator.creator_avatar: data.get('headPhoto') or '',
-                    Creator.account_level: data.get('currentLevel') or 0,
-                    Creator.content_field: tag_str,
-                    Creator.mcn_name: note_sign.get('name') or '',
-                    Creator.status:2
-                })
+                url.nickname = data.get('name'),
+                url.fansCount = data.get('fansCount'),
+                url.likeCollectCountInfo = data.get('likeCollectCountInfo'),
+                url.picture_price = data.get('picturePrice'),
+                url.video_price = data.get('videoPrice'),
+                url.contentTags = tag_str,
                 session.commit()
 
             except Exception as e:
@@ -514,9 +556,14 @@ class PGYSpider:
                         )
                         session.add(note_detail)
                 session.commit()
+            last_date = note_list[-1].get('date')
+
+            # 如果没有日期字段，也停
+            if not last_date:
+                return False
 
             # 检查最后一条数据的时间，判断是否应该继续分页
-            if note_list:
+            if last_date >= '2025-11-01':
                 should_continue = True
             else:
                 should_continue = False

@@ -6,10 +6,8 @@ import uuid
 import requests
 
 headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    "cookie": 'a1=19882f48bcap04qq1r777p9ggafrdrroz4abocygo50000339517; webId=e7111fec356dc781ca1d14d236afda9a; customerClientId=016216997022661; abRequestId=e7111fec356dc781ca1d14d236afda9a; x-user-id-creator.xiaohongshu.com=634cc30badd08a00019ee4e3; gid=yjYSKK8dd0uiyjYYJi4YD4SvS0U84AAyFWWW0klUjkk0iD28FfFFll888qqj2yW8DY2KKijK; x-user-id-ad-market.xiaohongshu.com=67bbea69000000000d009ec6; access-token-ad-market.xiaohongshu.com=customer.ad_market.AT-68c517561719769394855947z3wtukxckssgow61; x-user-id-pgy.xiaohongshu.com=634cc30badd08a00019ee4e3; web_session=0400698efe0fc8579efe17fe2f3b4b3c80cddc; xsecappid=ratlin; customer-sso-sid=68c517578692676989763584p3kokfjxczyqf3qv; solar.beaker.session.id=AT-68c517578692676989779970gcngfg3cgwuaml38; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c517578692676989779970gcngfg3cgwuaml38; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c517578692676989779970gcngfg3cgwuaml38; loadts=1764551896459; acw_tc=0a00d15517645518976977629e89d45a0a355a79209fa87f193e8186963bb1',
-    'Accept': 'application/json, text/javascript, */*; q=0.01',
-    'Accept-Encoding': 'gzip, deflate, br',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'cookie': 'a1=19882f48bcap04qq1r777p9ggafrdrroz4abocygo50000339517; webId=e7111fec356dc781ca1d14d236afda9a; customerClientId=016216997022661; abRequestId=e7111fec356dc781ca1d14d236afda9a; gid=yjYSKK8dd0uiyjYYJi4YD4SvS0U84AAyFWWW0klUjkk0iD28FfFFll888qqj2yW8DY2KKijK; x-user-id-ad-market.xiaohongshu.com=67bbea69000000000d009ec6; access-token-ad-market.xiaohongshu.com=customer.ad_market.AT-68c517561719769394855947z3wtukxckssgow61; x-user-id-creator.xiaohongshu.com=68490ce0000000001d015a55; id_token=VjEAAPe5tS5XKfGIeEXqT32Z7xFeKPd37cAElHkyYKcOFNrYsLwTZ+eNd6I5YqPOvN0I6OgzrXNVqA3ujDdXRPqGUVaDOP1Cmf+QooCFsykshLKE0OJ8vtxx1vH4XQ6KuvekieN7; customer-sso-sid=68c5176314862045389455410qlby4cgut3ls0pu; x-user-id-pgy.xiaohongshu.com=67bbea69000000000d009ec6; solar.beaker.session.id=AT-68c517631486204538814473zkmpb9gvd4uk82ev; access-token-pgy.xiaohongshu.com=customer.pgy.AT-68c517631486204538814473zkmpb9gvd4uk82ev; access-token-pgy.beta.xiaohongshu.com=customer.pgy.AT-68c517631486204538814473zkmpb9gvd4uk82ev; ets=1776890180345; webBuild=6.7.4; web_session=030037af937e180736240913942e4ae9408ad5; unread={%22ub%22:%2263f8f129000000001300a79c%22%2C%22ue%22:%2263d3a5110000000004004bd1%22%2C%22uc%22:17}; xsecappid=ratlin; acw_tc=0a426f0117772670630651952e09febe7cd207285f9f5a98337cf16e78997a; loadts=1777268171930',
 }
 
 headers1 = {
@@ -413,19 +411,35 @@ def get_mcn_detail(mcn_id, header=None):
     :param user_id: 博主ID
     :return: 视频报价和图文报价
     """
+    if not mcn_id:
+        raise ValueError("mcn_id 不能为空")
+
+    if header is None:
+        header = headers
+
+    url = f"https://pgy.xiaohongshu.com/api/solar/cooperator/mcn/{mcn_id}/blogger/v1?column=&sort=&pageNum=1&pageSize=999999"
+
     try:
-        if header is None:
-            header = headers
-        url = f"https://pgy.xiaohongshu.com/api/solar/cooperator/mcn/{mcn_id}/blogger/v1?column=&sort=&pageNum=1&pageSize=999999"
         response = requests.get(url, headers=header, verify=False, timeout=30)
         response.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"请求 MCN {mcn_id} 详情失败: {exc}") from exc
+
+    try:
         data = response.json()
-        if data.get("code") == 0 and data.get("success"):
-            result = data.get("data", {}).get('kols', [])
-            return result
-        else:
-            print(f"获取博主笔记信息失败: {data.get('msg')}")
-            return {}
-    except Exception as e:
-        print(f"获取博主笔记信息出错: {str(e)}")
-        return {}
+    except ValueError as exc:
+        preview = response.text[:200].replace("\n", " ")
+        raise RuntimeError(f"MCN {mcn_id} 返回非 JSON 响应: {preview}") from exc
+
+    if data.get("code") == 0 and data.get("success"):
+        result = data.get("data", {}).get('kols', [])
+        if result is None:
+            return []
+        if not isinstance(result, list):
+            raise RuntimeError(f"MCN {mcn_id} 返回的 kols 字段不是列表: {type(result).__name__}")
+        return result
+
+    raise RuntimeError(
+        f"获取 MCN {mcn_id} 博主数据失败: code={data.get('code')}, "
+        f"success={data.get('success')}, msg={data.get('msg')}"
+    )

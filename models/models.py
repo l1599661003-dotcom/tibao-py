@@ -301,6 +301,31 @@ class QgNoteInfo(Base):
     create_time = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), comment='记录创建时间')
     update_time = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'), comment='记录更新时间')
 
+class QgCompanyNoteInfo(Base):
+    __tablename__ = 'qg_company_note_info'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='自增主键')
+    title = Column(String(500), comment='笔记标题')
+    blogger_nickname = Column(String(255), comment='博主昵称')
+    blogger_prop = Column(String(100), comment='博主等级称号（如腰部达人）')
+    note_type = Column(String(50), comment='笔记类型（NoteType）')
+    cover_image = Column(String(255), comment='笔记类型（NoteType）')
+    pub_date = Column(Date, comment='发布日期（PubDate）')
+    cooperate_binds_name = Column(String(255), comment='合作品牌名称（CooperateBindsName）')
+    view_count = Column(Integer, default=0, comment='浏览量（ViewCount）')
+    note_id = Column(Integer, default=0, comment='浏览量（ViewCount）')
+    active_count = Column(Integer, default=0, comment='互动量（ActiveCount）')
+    amount = Column(BigInteger, default=0, comment='笔记广告报价金额（Amount）')
+    belong_mcn = Column(String(255), comment='关联的博主ID')
+    month = Column(String(20), comment='数据月份')
+    collected_count = Column(Integer, default=0, comment='互动量（ActiveCount）')
+    share_count = Column(Integer, default=0, comment='互动量（ActiveCount）')
+    comments_count = Column(Integer, default=0, comment='互动量（ActiveCount）')
+    liked_count = Column(Integer, default=0, comment='互动量（ActiveCount）')
+    note_url = Column(String(500), comment='笔记原文链接')
+    create_time = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), comment='记录创建时间')
+    update_time = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'), comment='记录更新时间')
+
 class QgBrandBusinessNote(Base):
     """千瓜品牌商业笔记数据表"""
     __tablename__ = 'qg_brand_business_note'
@@ -636,3 +661,29 @@ class BloggerInfo(Base):
 
 
 
+
+
+class FpBrandHot(Base):
+    """千瓜品牌投放大盘热门品牌数据表"""
+    __tablename__ = 'fp_brand_hot'
+    __table_args__ = (
+        Index('idx_brand_id', 'brand_id'),
+        Index('idx_category_tag', 'category_tag'),
+        Index('idx_month', 'month'),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='自增主键')
+    brand_id = Column(BigInteger, nullable=False, comment='品牌ID（BrandId）')
+    brand_id_key = Column(String(64), comment='品牌唯一Key（BrandIdKey）')
+    brand_name = Column(String(255), nullable=False, comment='品牌名称（BrandName）')
+    brand_img = Column(String(500), comment='品牌Logo地址（BrandImg）')
+    brand_intro = Column(Text, comment='品牌简介（BrandIntro）')
+    active_count = Column(BigInteger, default=0, comment='活跃数量（ActiveCount）')
+    amount = Column(BigInteger, default=0, comment='预估投放金额（Amount）')
+    blogger_count = Column(Integer, default=0, comment='合作博主数量（BloggerCount）')
+    note_count = Column(Integer, default=0, comment='笔记数量（NoteCount）')
+    category_tag = Column(String(100), comment='分类标签（如彩妆、护肤等）')
+    month = Column(String(20), comment='数据月份')
+    total_count = Column(Integer, default=0, comment='该分类总品牌数（TotalCount）')
+    create_time = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), comment='创建时间')
+    update_time = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'), comment='更新时间')

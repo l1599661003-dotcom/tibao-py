@@ -56,6 +56,7 @@ def get_kols_data():
                         name = kol.get('name')
                         pictureShowState = kol.get('pictureShowState')
                         videoShowState = kol.get('videoShowState')
+                        kolHeadLabel = kol.get('kolHeadLabel')
                         if pictureShowState:
                             picturePrice = kol.get('picturePrice', 0)
                         else:
@@ -80,6 +81,7 @@ def get_kols_data():
                             video_price=videoPrice,  # 使用视频价格作为1-1价格
                             redId=kol.get('redId', ''),  # 地址信息
                             currentLevel=kol.get('currentLevel', ''),  # 地址信息
+                            kolHeadLabel=kolHeadLabel,  # 地址信息
                             created_time=datetime.now(),
                             updated_time=datetime.now(),
                         )

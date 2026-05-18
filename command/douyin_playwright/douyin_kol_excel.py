@@ -12,7 +12,8 @@ import re
 
 import playwright
 from models.models_tibao import DouYinKolRealization, DouYinKolNote
-from core.database_text_tibao_2 import session
+# from core.database_text_tibao_2 import session
+from core.localhost_fp_project import session
 from loguru import logger
 from playwright.sync_api import sync_playwright
 from unitl.common import Common
@@ -168,12 +169,12 @@ class DouYinSpiderExcel:
                     logger.info(f"第 {index + 1} 行：开始处理KOL，用户ID: {user_id}")
 
                     # 检查24小时缓存机制
-                    cache_valid = self._check_cache_validity(user_id)
-                    if cache_valid:
-                        logger.info(f"第 {index + 1} 行：KOL {user_id} 数据在24小时内，跳过抓取")
-                        # 即使跳过抓取，也要更新Excel数据
-                        self._update_excel_row_with_db_data(index, row, user_id)
-                        continue
+                    # cache_valid = self._check_cache_validity(user_id)
+                    # if cache_valid:
+                    #     logger.info(f"第 {index + 1} 行：KOL {user_id} 数据在24小时内，跳过抓取")
+                    #     # 即使跳过抓取，也要更新Excel数据
+                    #     self._update_excel_row_with_db_data(index, row, user_id)
+                    #     continue
 
                     # 清空之前的数据
                     self.api_data.clear()
@@ -1054,12 +1055,12 @@ class DouYinSpiderExcel:
                         self.note_data.append(note)
 
             # 处理latest_item_info数据
-            if 'latest_item_info' in response_data:
-                items_data = response_data.get('latest_item_info', [])
-                if items_data:
-                    self.logger.info(f"开始处理普通笔记数据，共 {len(items_data)} 条")
-                    for item in items_data:
-                        self.note_data.append(item)
+            # if 'latest_item_info' in response_data:
+            #     items_data = response_data.get('latest_item_info', [])
+            #     if items_data:
+            #         self.logger.info(f"开始处理普通笔记数据，共 {len(items_data)} 条")
+            #         for item in items_data:
+            #             self.note_data.append(item)
 
             # 保存笔记数据到数据库
             if self.note_data:
@@ -1353,21 +1354,35 @@ class DouYinSpiderExcel:
 
                 # 检查是否存在用户头像元素
                 self.logger.info("验证Cookie是否有效...")
-                
+
                 login_detected = False
 
                 try:
                     element = self.page.locator(".user-avatar")
                     count = element.count()
-                    self.logger.info(f"选择器 '{".user-avatar"}' 找到 {count} 个元素")
+                    self.logger.info(f"选择器 .user-avatar 找到 {count} 个元素")
 
                     if count > 0:
-                        if element.first.is_visible(timeout=3000):
-                            self.logger.info(f"✅ 通过选择器 '{".user-avatar"}' 检测到Cookie有效")
-                            login_detected = True
+                        # 检查所有元素，只要有一个可见就认为登录成功
+                        self.logger.info(f"开始检查 {count} 个 .user-avatar 元素的可见性...")
+                        all_elements = element.all()
+                        for i, elem in enumerate(all_elements):
+                            try:
+                                if elem.is_visible(timeout=1000):
+                                    self.logger.info(f"第 {i + 1} 个 .user-avatar 元素可见，Cookie有效")
+                                    login_detected = True
+                                    break
+                                else:
+                                    self.logger.debug(f"第 {i + 1} 个 .user-avatar 元素不可见")
+                            except Exception as elem_error:
+                                self.logger.debug(f"第 {i + 1} 个 .user-avatar 元素检查出错: {str(elem_error)}")
+                                continue
+
+                        if not login_detected:
+                            self.logger.warning(f"找到 {count} 个 .user-avatar 元素，但都不可见")
                 except Exception as e:
-                    self.logger.debug(f"选择器 '{".user-avatar"}' 检查出错: {str(e)}")
-                
+                    self.logger.debug(f"选择器 .user-avatar 检查出错: {str(e)}")
+
                 # 更新登录状态
                 if login_detected:
                     self.is_logged_in = True
@@ -1396,6 +1411,11 @@ class DouYinSpiderExcel:
         参考小红书登录检测逻辑，使用wait_for_selector
         """
         try:
+
+            if self.page is None:
+                self.logger.info("浏览器未初始化，开始初始化...")
+                self.setup_browser()
+
             if self.is_logged_in:
                 self.logger.info("已处于登录状态")
                 return True
@@ -1407,22 +1427,22 @@ class DouYinSpiderExcel:
                 self.common.random_sleep(20, 30)
                 # 尝试多个可能的选择器
                 selectors = [
-                    ".text-avatar",           # 抖音头像
-                    ".user-avatar",           # 通用头像
+                    ".text-avatar",  # 抖音头像
+                    ".user-avatar",  # 通用头像
                 ]
-                
+
                 # 设置最大等待时间(5分钟)
                 max_wait_time = 300  # 秒
                 start_time = time.time()
                 login_detected = False
-                
+
                 # 循环检查直到找到元素或超时
                 while time.time() - start_time < max_wait_time:
                     # 每30秒提示一次等待状态
                     elapsed_time = int(time.time() - start_time)
                     if elapsed_time % 30 == 0 and elapsed_time > 0:
                         self.logger.info(f"⏳ 等待登录中... 已等待 {elapsed_time} 秒")
-                    
+
                     # 尝试每个选择器
                     for selector in selectors:
                         try:
@@ -1436,21 +1456,21 @@ class DouYinSpiderExcel:
                         except Exception as e:
                             # 忽略错误，继续尝试下一个选择器
                             pass
-                    
+
                     # 如果找到登录标识，退出循环
                     if login_detected:
                         break
-                    
+
                     # 等待一小段时间再检查
                     time.sleep(2)
-                
+
                 # 检查是否登录成功
                 if login_detected:
                     self.is_logged_in = True
-                    
+
                     # 登录成功后保存Cookie
                     self._save_cookies()
-                    
+
                     self.logger.info("🎉 登录成功！已保存Cookie")
                     return True
                 else:

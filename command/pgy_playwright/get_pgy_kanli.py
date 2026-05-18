@@ -57,7 +57,7 @@ def load_config():
     return {
         'PGY_LOGIN_CONFIG': {
             'id': config.get('PGY_LOGIN', 'id'),
-            'page_size': config.get('PGY_LOGIN', 'page_size')
+            # 'page_size': config.get('PGY_LOGIN', 'page_size')
         },
         'API_TARGETS': config.get('API_TARGETS', 'targets').split(','),
         'SCHEDULER_CONFIG': {
@@ -343,7 +343,8 @@ class PGYSpider:
             # 查询需要更新的博主数据 - 匹配PHP查询逻辑
             api_url = (
                 "https://tianji.fangpian999.com/api/admin/creatorBusiness/getNewerCreator"
-                f"?type=1&page={self.config['PGY_LOGIN_CONFIG']['id']}&pageSize={self.config['PGY_LOGIN_CONFIG']['page_size']}"
+                # f"?type=1&page={self.config['PGY_LOGIN_CONFIG']['id']}&pageSize={self.config['PGY_LOGIN_CONFIG']['page_size']}"
+                f"?type=1&page={self.config['PGY_LOGIN_CONFIG']['id']}&pageSize=300"
             )
             headers = {"Content-Type": "application/json"}
 
@@ -475,6 +476,47 @@ class PGYSpider:
                         elif 'blogger' in api_url:
                             self._process_blogger(api_data, url)
 
+                    # 处理数据摘要
+                    try:
+                        self.api_data.clear()
+
+                        once = self.page.locator("button:has-text('下一步')").first
+                        if once:
+                            once.click()
+
+                        # 点击"按成本"按钮
+                        dropdown_container = self.page.locator('.d-spinner-container')
+                        switch_button = dropdown_container.locator('button:has-text("按成本")').first
+                        if switch_button.is_visible(timeout=5000):
+                            switch_button.click()
+
+                        # 等待页面加载完成
+                        try:
+                            self.page.wait_for_load_state('networkidle', timeout=5000)
+                        except Exception as e:
+                            logger.warning(f"等待页面加载完成时出错: {str(e)}")
+
+                        self.common.random_sleep(8, 12)
+
+                        # 处理数据摘要API
+                        data_summary_copy = dict(self.api_data)
+                        for api_url, response_data in data_summary_copy.items():
+                            try:
+                                if not response_data or not isinstance(response_data, dict):
+                                    continue
+
+                                if 'data_summary' in api_url and 'data' in response_data:
+                                    api_data = response_data.get('data', {})
+                                    if api_data and isinstance(api_data, dict):
+                                        self._process_data_summary(api_data, url)
+                                        break
+                            except Exception as e:
+                                logger.warning(f"处理数据摘要API时出错: {str(e)}")
+                                continue
+
+                    except Exception as e:
+                        logger.error(f"处理数据摘要步骤时出错: {str(e)}")
+
                     # 处理不同类型的笔记数据
                     note_types_config = [
                         {
@@ -527,7 +569,8 @@ class PGYSpider:
                         except Exception as e:
                             logger.error(f"处理{config['name']}时出错: {str(e)}")
                             continue
-
+                    print(self.payload)
+                    exit()
                     # 调用同步接口
                     sync_result = self.sync_single_record_to_api(self.payload)
                     if sync_result:
@@ -564,6 +607,7 @@ class PGYSpider:
                 # 克隆数据并添加博主ID
                 payload_data = dict(data)
                 payload_data['platform_user_id'] = url['platform_user_id']
+                payload_data['creatorPgyTag'] = payload_data['contentTags']
                 self.payload["apis"][blogger_info_index]["tb_data"] = [payload_data]
 
     def _process_fans_profile(self, api_data, url):

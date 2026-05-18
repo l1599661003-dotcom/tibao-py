@@ -1,4 +1,4 @@
-import configparser
+﻿import configparser
 import json
 import os
 import time
@@ -11,8 +11,8 @@ import requests
 
 import playwright
 from models.models_tibao import DouYinKolRealization, DouYinKolNote, DouyinSearchList
-from core.database_text_tibao_2 import session
-# from core.localhost_fp_project import session
+# from core.database_text_tibao_2 import session
+from core.localhost_fp_project import session
 import pandas as pd
 from loguru import logger
 from playwright.sync_api import sync_playwright
@@ -32,6 +32,7 @@ def get_base_path():
     except Exception:
         return os.path.abspath("../..")
 
+
 def get_resource_path(relative_path):
     """获取资源文件路径，支持exe打包"""
     try:
@@ -40,6 +41,8 @@ def get_resource_path(relative_path):
     except Exception:
         base_path = os.path.abspath("../..")
     return os.path.join(base_path, relative_path)
+
+
 def load_config():
     """加载配置文件"""
     config = configparser.ConfigParser()
@@ -71,6 +74,7 @@ def load_config():
             'computer': config.get('PGY_LOGIN', 'computer')
         },
     }
+
 
 class DouYinSpider:
     def __init__(self):
@@ -122,7 +126,7 @@ class DouYinSpider:
                 self.logger.error("未登录状态，无法抓取数据")
                 return 0
 
-            self.current_kol = {'name': kol_name, 'url': kol_url, 'user_id':star_id}
+            self.current_kol = {'name': kol_name, 'url': kol_url, 'user_id': star_id}
             self.processed_api_responses.clear()
             # 完全重置营销信息，确保数据隔离
             self.marketing_info = {'user_id': star_id}
@@ -170,7 +174,7 @@ class DouYinSpider:
                         self.logger.info("检测到页面已切换到创作能力页面")
                     else:
                         self.logger.info("页面切换状态未知，继续执行")
-                    
+
                     # 等待API请求完成 - 增加等待时间
                     self.logger.info("等待API请求完成...")
                     wait_time = random.randint(8, 12)
@@ -228,10 +232,10 @@ class DouYinSpider:
             if self.marketing_info.get('user_id') != current_user_id:
                 self.logger.warning(f"数据不匹配：期望 {current_user_id}，实际 {self.marketing_info.get('user_id')}")
                 return
-            
+
             # 提取价格信息
             price_info = response_data.get('price_info', [])
-            
+
             # 将JSON对象转换为字符串
             try:
                 industry_tags_json = json.dumps(response_data.get('industry_tags', []), ensure_ascii=False)
@@ -275,10 +279,10 @@ class DouYinSpider:
             if self.marketing_info.get('user_id') != current_user_id:
                 self.logger.warning(f"数据不匹配：期望 {current_user_id}，实际 {self.marketing_info.get('user_id')}")
                 return
-            
+
             # 提取链接信息
             douyin_link = f"https://www.xingtu.cn/ad/creator/author-homepage/douyin-video/{current_user_id}"
-            
+
             # 将整个响应数据转换为JSON字符串
             try:
                 author_base_info_json = json.dumps(response_data, ensure_ascii=False)
@@ -551,13 +555,12 @@ class DouYinSpider:
                                 douyin_item_id=item_id).first()
 
                             if existing_record:
-                                # 更新现有记录
-                                self._update_note_record(existing_record, note, current_user_id)
+                                # 记录已存在，跳过不更新
+                                self.logger.debug(f"视频 {item_id} 已存在，跳过保存")
                             else:
                                 # 创建新记录
                                 self._create_note_record(note, current_user_id)
-
-                            processed_count += 1
+                                processed_count += 1
 
                         except Exception as e:
                             self.logger.error(f"处理单条星图视频数据时出错: {str(e)}")
@@ -567,39 +570,39 @@ class DouYinSpider:
                 else:
                     self.logger.info("本次获取的星图视频数据为空")
 
-            # 处理latest_item_info数据
-            if 'latest_item_info' in response_data:
-                items_data = response_data.get('latest_item_info', [])
-                if items_data:
-                    processed_count = 0
-
-                    for item in items_data:
-                        try:
-                            item_id = item.get('item_id', '')
-                            if not item_id:
-                                self.logger.warning("跳过处理：item_id为空")
-                                continue
-
-                            # 检查记录是否已存在
-                            existing_record = session.query(DouYinKolNote).filter_by(
-                                douyin_item_id=item_id).first()
-
-                            if existing_record:
-                                # 更新现有记录
-                                self._update_note_record(existing_record, item, current_user_id)
-                            else:
-                                # 创建新记录
-                                self._create_note_record(item, current_user_id)
-
-                            processed_count += 1
-
-                        except Exception as e:
-                            self.logger.error(f"处理单条普通视频数据时出错: {str(e)}")
-                            continue
-
-                    self.logger.info(f"成功处理 {processed_count} 条普通笔记数据")
-                else:
-                    self.logger.info("本次获取的普通视频数据为空")
+            # # 处理latest_item_info数据
+            # if 'latest_item_info' in response_data:
+            #     items_data = response_data.get('latest_item_info', [])
+            #     if items_data:
+            #         processed_count = 0
+            #
+            #         for item in items_data:
+            #             try:
+            #                 item_id = item.get('item_id', '')
+            #                 if not item_id:
+            #                     self.logger.warning("跳过处理：item_id为空")
+            #                     continue
+            #
+            #                 # 检查记录是否已存在
+            #                 existing_record = session.query(DouYinKolNote).filter_by(
+            #                     douyin_item_id=item_id).first()
+            #
+            #                 if existing_record:
+            #                     # 更新现有记录
+            #                     self._update_note_record(existing_record, item, current_user_id)
+            #                 else:
+            #                     # 创建新记录
+            #                     self._create_note_record(item, current_user_id)
+            #
+            #                 processed_count += 1
+            #
+            #             except Exception as e:
+            #                 self.logger.error(f"处理单条普通视频数据时出错: {str(e)}")
+            #                 continue
+            #
+            #         self.logger.info(f"成功处理 {processed_count} 条普通笔记数据")
+            #     else:
+            #         self.logger.info("本次获取的普通视频数据为空")
 
         except Exception as e:
             self.logger.error(f"处理用户视频数据时出错: {str(e)}")
@@ -679,7 +682,6 @@ class DouYinSpider:
             session.rollback()
             raise
 
-
     def send_wechat_notification(self, message):
         """发送企业微信通知"""
         try:
@@ -732,7 +734,8 @@ class DouYinSpider:
                         # 发送企业微信通知
                         try:
                             computer_name = self.config['PGY_LOGIN_CONFIG'].get('computer', '')
-                            self.send_wechat_notification(f"{computer_name}🔒 抖音KOL数据抓取检测到验证码！\n请尽快手动完成验证，程序已暂停等待...")
+                            self.send_wechat_notification(
+                                f"{computer_name}🔒 抖音KOL数据抓取检测到验证码！\n请尽快手动完成验证，程序已暂停等待...")
                         except Exception as notify_error:
                             self.logger.error(f"发送企业微信通知失败: {str(notify_error)}")
                             pass
@@ -871,7 +874,7 @@ class DouYinSpider:
                 try:
                     element = self.page.locator(".user-avatar")
                     count = element.count()
-                    self.logger.info(f"选择器 '{".user-avatar"}' 找到 {count} 个元素")
+                    self.logger.info(f"选择器 '.user-avatar' 找到 {count} 个元素")
 
                     if count > 0:
                         # 检查所有元素，只要有一个可见就认为登录成功
@@ -892,7 +895,7 @@ class DouYinSpider:
                         if not login_detected:
                             self.logger.warning(f"找到 {count} 个 .user-avatar 元素，但都不可见")
                 except Exception as e:
-                    self.logger.debug(f"选择器 '{".user-avatar"}' 检查出错: {str(e)}")
+                    self.logger.debug(f"选择器 '.user-avatar' 检查出错: {str(e)}")
 
                 # 更新登录状态
                 if login_detected:
@@ -935,19 +938,19 @@ class DouYinSpider:
                 selectors = [
                     ".text-avatar"
                 ]
-                
+
                 # 设置最大等待时间(5分钟)
                 max_wait_time = 300  # 秒
                 start_time = time.time()
                 login_detected = False
-                
+
                 # 循环检查直到找到元素或超时
                 while time.time() - start_time < max_wait_time:
                     # 每30秒提示一次等待状态
                     elapsed_time = int(time.time() - start_time)
                     if elapsed_time % 30 == 0 and elapsed_time > 0:
                         self.logger.info(f"⏳ 等待登录中... 已等待 {elapsed_time} 秒")
-                    
+
                     # 尝试每个选择器
                     for selector in selectors:
                         try:
@@ -961,22 +964,21 @@ class DouYinSpider:
                         except Exception as e:
                             # 忽略错误，继续尝试下一个选择器
                             pass
-                    
+
                     # 如果找到登录标识，退出循环
                     if login_detected:
                         break
-                    
-                    
+
                     # 等待一小段时间再检查
                     time.sleep(2)
-                
+
                 # 检查是否登录成功
                 if login_detected:
                     self.is_logged_in = True
-                    
+
                     # 登录成功后保存Cookie
                     self._save_cookies()
-                    
+
                     self.logger.info("🎉 登录成功！已保存Cookie")
                     return True
                 else:
@@ -1339,11 +1341,11 @@ def process_kol(spider: DouYinSpider, kol: DouyinSearchList):
             return True
         elif result == 2:
             # 没有创作能力按钮（该KOL没有创作能力数据）
-            kol.status = 2
+            kol.status = 3
             kol.updated_at = datetime.now()
             session.commit()
 
-            spider.logger.info(f"ℹ️ KOL {kol_name} 没有创作能力数据，已标记为状态2")
+            spider.logger.info(f"ℹ️ KOL {kol_name} 没有创作能力数据，已标记为状态3")
             return True
         else:
             # 处理失败
